@@ -1,4 +1,5 @@
 #include <doctest/doctest.h>
+#include <electionguard/election.hpp>
 #include <electionguard/guardian.hpp>
 #include <electionguard/group.hpp>
 
@@ -78,4 +79,32 @@ TEST_CASE("v2.1 Consolidated Schnorr proof covers all coefficients plus comm key
     auto dataCommitments = keySet->getDataCommitments();
     CHECK(dataProof->isValid(parameterHash.get(), dataCommitments,
                              keySet->getCommPublicKey(), guardianIndex, "pk_data"));
+}
+
+TEST_CASE("v2.1 Share encryption: guardian i encrypts shares for guardian l")
+{
+    uint64_t quorum = 2;
+    auto guardian1 = GuardianKeySet::generate(1, quorum);
+    auto guardian2 = GuardianKeySet::generate(2, quorum);
+
+    // Guardian 1 encrypts its share for guardian 2
+    auto encrypted = guardian1->encryptShareFor(
+        2, guardian2->getCommunicationPublicKey(),
+        CiphertextElectionContext::computeParameterHash(3, quorum).get());
+    REQUIRE(encrypted != nullptr);
+
+    // Guardian 2 can decrypt the share
+    auto decrypted = guardian2->decryptShareFrom(1, *encrypted);
+    REQUIRE(decrypted != nullptr);
+
+    // Decrypted share matches direct evaluation
+    auto directVoteShare = guardian1->evaluateVotePolynomial(2);
+    auto directDataShare = guardian1->evaluateDataPolynomial(2);
+    CHECK((*decrypted->getVoteShare() == *directVoteShare));
+    CHECK((*decrypted->getDataShare() == *directDataShare));
+
+    // Schnorr proof on the DH pair verifies
+    CHECK(encrypted->isProofValid(
+        CiphertextElectionContext::computeParameterHash(3, quorum).get(),
+        guardian2->getCommunicationPublicKey()));
 }

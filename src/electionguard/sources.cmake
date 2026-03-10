@@ -37,6 +37,7 @@ set(SOURCES_electionguard
     ${PROJECT_SOURCE_DIR}/src/electionguard/guardian.cpp
     ${PROJECT_SOURCE_DIR}/src/electionguard/hash.cpp
     ${PROJECT_SOURCE_DIR}/src/electionguard/hmac.cpp
+    ${PROJECT_SOURCE_DIR}/src/electionguard/kdf.cpp
     ${PROJECT_SOURCE_DIR}/src/electionguard/log.hpp
     ${PROJECT_SOURCE_DIR}/src/electionguard/log.cpp
     ${PROJECT_SOURCE_DIR}/src/electionguard/lookup_table.hpp

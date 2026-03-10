@@ -3,6 +3,7 @@
 #include "electionguard/constants.h"
 #include "electionguard/group.hpp"
 #include "electionguard/hash.hpp"
+#include "electionguard/kdf.hpp"
 #include "log.hpp"
 
 #include <cstdint>
@@ -123,6 +124,115 @@ namespace electionguard
 #pragma endregion
 
 // ─────────────────────────────────────────────────────────────────────────────
+#pragma region DecryptedShare
+
+    struct DecryptedShare::Impl {
+        unique_ptr<ElementModQ> voteShare;
+        unique_ptr<ElementModQ> dataShare;
+
+        Impl(unique_ptr<ElementModQ> vs, unique_ptr<ElementModQ> ds)
+            : voteShare(move(vs)), dataShare(move(ds))
+        {
+        }
+    };
+
+    DecryptedShare::DecryptedShare(unique_ptr<ElementModQ> voteShare,
+                                   unique_ptr<ElementModQ> dataShare)
+        : pimpl(new Impl(move(voteShare), move(dataShare)))
+    {
+    }
+
+    DecryptedShare::~DecryptedShare() = default;
+
+    ElementModQ *DecryptedShare::getVoteShare() const { return pimpl->voteShare.get(); }
+
+    ElementModQ *DecryptedShare::getDataShare() const { return pimpl->dataShare.get(); }
+
+#pragma endregion
+
+// ─────────────────────────────────────────────────────────────────────────────
+#pragma region EncryptedShare
+
+    struct EncryptedShare::Impl {
+        uint64_t senderIndex;
+        uint64_t recipientIndex;
+        unique_ptr<ElementModQ> parameterHash;
+        unique_ptr<ElementModP> alpha;
+        unique_ptr<ElementModP> beta;
+        vector<uint8_t> encVoteShare;
+        vector<uint8_t> encDataShare;
+        unique_ptr<ElementModQ> proofChallenge;
+        unique_ptr<ElementModQ> proofResponse;
+
+        Impl(uint64_t sIdx, uint64_t rIdx, unique_ptr<ElementModQ> pH,
+             unique_ptr<ElementModP> a, unique_ptr<ElementModP> b,
+             vector<uint8_t> ev, vector<uint8_t> ed,
+             unique_ptr<ElementModQ> pc, unique_ptr<ElementModQ> pr)
+            : senderIndex(sIdx), recipientIndex(rIdx), parameterHash(move(pH)),
+              alpha(move(a)), beta(move(b)), encVoteShare(move(ev)), encDataShare(move(ed)),
+              proofChallenge(move(pc)), proofResponse(move(pr))
+        {
+        }
+    };
+
+    EncryptedShare::EncryptedShare(uint64_t senderIndex, uint64_t recipientIndex,
+                                   unique_ptr<ElementModQ> parameterHash,
+                                   unique_ptr<ElementModP> alpha, unique_ptr<ElementModP> beta,
+                                   vector<uint8_t> encVoteShare, vector<uint8_t> encDataShare,
+                                   unique_ptr<ElementModQ> proofChallenge,
+                                   unique_ptr<ElementModQ> proofResponse)
+        : pimpl(new Impl(senderIndex, recipientIndex, move(parameterHash), move(alpha), move(beta),
+                         move(encVoteShare), move(encDataShare), move(proofChallenge),
+                         move(proofResponse)))
+    {
+    }
+
+    EncryptedShare::~EncryptedShare() = default;
+
+    uint64_t EncryptedShare::getSenderIndex() const { return pimpl->senderIndex; }
+
+    uint64_t EncryptedShare::getRecipientIndex() const { return pimpl->recipientIndex; }
+
+    const ElementModQ *EncryptedShare::getParameterHash() const
+    {
+        return pimpl->parameterHash.get();
+    }
+
+    const ElementModP *EncryptedShare::getAlpha() const { return pimpl->alpha.get(); }
+
+    const ElementModP *EncryptedShare::getBeta() const { return pimpl->beta.get(); }
+
+    const vector<uint8_t> &EncryptedShare::getEncVoteShare() const { return pimpl->encVoteShare; }
+
+    const vector<uint8_t> &EncryptedShare::getEncDataShare() const { return pimpl->encDataShare; }
+
+    bool EncryptedShare::isProofValid(const ElementModQ *parameterHash,
+                                      const ElementModP *recipientCommKey) const
+    {
+        const uint64_t i = pimpl->senderIndex;
+        const uint64_t l = pimpl->recipientIndex;
+
+        // h' = g^v * alpha^c mod p
+        auto gv = g_pow_p(*pimpl->proofResponse);
+        auto alphac = pow_mod_p(*pimpl->alpha, *pimpl->proofChallenge);
+        auto h_prime = mul_mod_p(*gv, *alphac);
+
+        // c' = H_q(H_P; 0x12, i, l, kappa_l, alpha, beta, h')
+        vector<CryptoHashableType> args;
+        args.push_back(static_cast<uint64_t>(i));
+        args.push_back(static_cast<uint64_t>(l));
+        args.push_back(const_cast<ElementModP *>(recipientCommKey));
+        args.push_back(const_cast<ElementModP *>(pimpl->alpha.get()));
+        args.push_back(const_cast<ElementModP *>(pimpl->beta.get()));
+        args.push_back(h_prime.get());
+
+        auto c_prime = hash_elems_v21_q(parameterHash, EG_DS_SHARE_ENC_PROOF, args);
+        return *c_prime == *pimpl->proofChallenge;
+    }
+
+#pragma endregion
+
+// ─────────────────────────────────────────────────────────────────────────────
 #pragma region GuardianKeySet implementation detail
 
     class GuardianKeySet::GuardianKeySetImpl
@@ -179,7 +289,7 @@ namespace electionguard
                                                    commPublic->clone());
         }
 
-        // ── Polynomial evaluation ──────────────────────────────────────────
+        // ── Polynomial evaluation ──────────────────────────────────────────────
         // P_i(l) = Σ_{j=0}^{k-1} a_{i,j} · l^j  mod q
         [[nodiscard]] unique_ptr<ElementModQ>
         evaluatePoly(const vector<unique_ptr<ElementModQ>> &coefficients, uint64_t l) const
@@ -195,7 +305,7 @@ namespace electionguard
             return result;
         }
 
-        // ── Proof generation ──────────────────────────────────────────────
+        // ── Proof generation ───────────────────────────────────────────────────
         [[nodiscard]] unique_ptr<ConsolidatedSchnorrProof>
         generateKeyProof(const ElementModQ *parameterHash,
                          const vector<unique_ptr<ElementModQ>> &coefficients,
@@ -247,6 +357,37 @@ namespace electionguard
 
             return make_unique<ConsolidatedSchnorrProof>(move(c), move(responses));
         }
+
+        // ── Share encryption helper ────────────────────────────────────────────
+
+        // Pad or truncate `bytes` to exactly `targetLen` bytes (big-endian, leading zeros).
+        static vector<uint8_t> padToSize(vector<uint8_t> bytes, size_t targetLen)
+        {
+            if (bytes.size() < targetLen) {
+                bytes.insert(bytes.begin(), targetLen - bytes.size(), 0x00);
+            } else if (bytes.size() > targetLen) {
+                // Truncate from the front (keep least significant bytes)
+                bytes.erase(bytes.begin(), bytes.begin() + (bytes.size() - targetLen));
+            }
+            return bytes;
+        }
+
+        // Build the KDF context bytes: "share_encrypt" || be32(i) || be32(l)
+        static vector<uint8_t> buildKdfContext(uint64_t i, uint64_t l)
+        {
+            static const string ctx_prefix = "share_encrypt";
+            vector<uint8_t> ctx;
+            ctx.insert(ctx.end(), ctx_prefix.begin(), ctx_prefix.end());
+            ctx.push_back(static_cast<uint8_t>((i >> 24) & 0xFF));
+            ctx.push_back(static_cast<uint8_t>((i >> 16) & 0xFF));
+            ctx.push_back(static_cast<uint8_t>((i >> 8) & 0xFF));
+            ctx.push_back(static_cast<uint8_t>(i & 0xFF));
+            ctx.push_back(static_cast<uint8_t>((l >> 24) & 0xFF));
+            ctx.push_back(static_cast<uint8_t>((l >> 16) & 0xFF));
+            ctx.push_back(static_cast<uint8_t>((l >> 8) & 0xFF));
+            ctx.push_back(static_cast<uint8_t>(l & 0xFF));
+            return ctx;
+        }
     };
 
 #pragma endregion
@@ -273,6 +414,8 @@ namespace electionguard
     }
 
     ElementModP *GuardianKeySet::getCommPublicKey() const { return pimpl->commPublic.get(); }
+
+    ElementModP *GuardianKeySet::getCommunicationPublicKey() const { return getCommPublicKey(); }
 
     vector<ElementModP *> GuardianKeySet::getVoteCommitments() const
     {
@@ -318,9 +461,105 @@ namespace electionguard
                                        pimpl->dataCommitments, "pk_data");
     }
 
+    unique_ptr<EncryptedShare>
+    GuardianKeySet::encryptShareFor(uint64_t recipientIndex, const ElementModP *recipientCommKey,
+                                    const ElementModQ *parameterHash) const
+    {
+        const uint64_t i = pimpl->guardianIndex;
+        const uint64_t l = recipientIndex;
+
+        // 1. DH pair: xi is random, alpha = g^xi, beta = kappa_l^xi
+        auto xi = rand_q();
+        auto alpha = g_pow_p(*xi);
+        auto beta = pow_mod_p(*recipientCommKey, *xi);
+
+        // 2. k = H(H_P; 0x11, i, l, kappa_l, alpha, beta)
+        //    Returns 32-byte raw HMAC (may be >= Q, stored unchecked)
+        auto k_elem = hash_elems_v21(parameterHash, EG_DS_SHARE_ENC_KEY,
+                                     {static_cast<uint64_t>(i), static_cast<uint64_t>(l),
+                                      const_cast<ElementModP *>(recipientCommKey), alpha.get(),
+                                      beta.get()});
+        auto k_bytes = GuardianKeySetImpl::padToSize(k_elem->toBytes(), 32);
+
+        // 3. KDF: derive two 32-byte keys
+        auto context = GuardianKeySetImpl::buildKdfContext(i, l);
+        auto keys = KDF::derive(k_bytes, "share_enc_keys", context, 2);
+        const auto &k1 = keys[0];
+        const auto &k2 = keys[1];
+
+        // 4. Evaluate polynomials, then XOR-encrypt
+        auto vote_bytes =
+          GuardianKeySetImpl::padToSize(pimpl->evaluatePoly(pimpl->voteCoefficients, l)->toBytes(),
+                                        32);
+        auto data_bytes =
+          GuardianKeySetImpl::padToSize(pimpl->evaluatePoly(pimpl->dataCoefficients, l)->toBytes(),
+                                        32);
+
+        vector<uint8_t> c_vote(32), c_data(32);
+        for (size_t idx = 0; idx < 32; ++idx) {
+            c_vote[idx] = vote_bytes[idx] ^ k1[idx];
+            c_data[idx] = data_bytes[idx] ^ k2[idx];
+        }
+
+        // 5. Schnorr proof that sender knows xi (the DL of alpha)
+        auto u = rand_q();
+        auto h = g_pow_p(*u);
+
+        auto c = hash_elems_v21_q(parameterHash, EG_DS_SHARE_ENC_PROOF,
+                                  {static_cast<uint64_t>(i), static_cast<uint64_t>(l),
+                                   const_cast<ElementModP *>(recipientCommKey), alpha.get(),
+                                   beta.get(), h.get()});
+
+        auto v = a_minus_bc_mod_q(*u, *c, *xi);
+
+        return make_unique<EncryptedShare>(i, l, parameterHash->clone(), move(alpha), move(beta),
+                                          move(c_vote), move(c_data), move(c), move(v));
+    }
+
+    unique_ptr<DecryptedShare>
+    GuardianKeySet::decryptShareFrom(uint64_t senderIndex, const EncryptedShare &encShare) const
+    {
+        const uint64_t i = senderIndex;
+        const uint64_t l = pimpl->guardianIndex;
+
+        // Recompute beta = alpha^zeta_l mod p  (DH property: equals kappa_l^xi)
+        auto beta = pow_mod_p(*encShare.getAlpha(), *pimpl->commSecret);
+
+        // k = H(H_P; 0x11, i, l, kappa_l, alpha, beta)
+        const ElementModQ *hp = encShare.getParameterHash();
+        auto k_elem = hash_elems_v21(hp, EG_DS_SHARE_ENC_KEY,
+                                     {static_cast<uint64_t>(i), static_cast<uint64_t>(l),
+                                      const_cast<ElementModP *>(pimpl->commPublic.get()),
+                                      const_cast<ElementModP *>(encShare.getAlpha()),
+                                      beta.get()});
+        auto k_bytes = GuardianKeySetImpl::padToSize(k_elem->toBytes(), 32);
+
+        // KDF: derive two 32-byte keys
+        auto context = GuardianKeySetImpl::buildKdfContext(i, l);
+        auto keys = KDF::derive(k_bytes, "share_enc_keys", context, 2);
+        const auto &k1 = keys[0];
+        const auto &k2 = keys[1];
+
+        // XOR-decrypt
+        const auto &ev = encShare.getEncVoteShare();
+        const auto &ed = encShare.getEncDataShare();
+
+        vector<uint8_t> vote_bytes(32), data_bytes(32);
+        for (size_t idx = 0; idx < 32; ++idx) {
+            vote_bytes[idx] = ev[idx] ^ k1[idx];
+            data_bytes[idx] = ed[idx] ^ k2[idx];
+        }
+
+        // Convert bytes back to ElementModQ (unchecked — they are polynomial evaluations mod q)
+        auto vote_share = bytes_to_q(vote_bytes, true);
+        auto data_share = bytes_to_q(data_bytes, true);
+
+        return make_unique<DecryptedShare>(move(vote_share), move(data_share));
+    }
+
     unique_ptr<GuardianKeySet> GuardianKeySet::generate(uint64_t guardianIndex, uint64_t quorum)
     {
-        // ── Vote polynomial ──────────────────────────────────────────────
+        // ── Vote polynomial ──────────────────────────────────────────────────
         vector<unique_ptr<ElementModQ>> voteCoeff;
         vector<unique_ptr<ElementModP>> voteComm;
         voteCoeff.reserve(quorum);
@@ -332,7 +571,7 @@ namespace electionguard
             voteComm.push_back(move(K));
         }
 
-        // ── Data polynomial ──────────────────────────────────────────────
+        // ── Data polynomial ──────────────────────────────────────────────────
         vector<unique_ptr<ElementModQ>> dataCoeff;
         vector<unique_ptr<ElementModP>> dataComm;
         dataCoeff.reserve(quorum);
@@ -344,7 +583,7 @@ namespace electionguard
             dataComm.push_back(move(K));
         }
 
-        // ── Communication key ────────────────────────────────────────────
+        // ── Communication key ────────────────────────────────────────────────
         auto zeta = rand_q();
         auto kappa = g_pow_p(*zeta);
 
