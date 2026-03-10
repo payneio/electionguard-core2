@@ -34,6 +34,7 @@ set(SOURCES_electionguard
     ${PROJECT_SOURCE_DIR}/src/electionguard/encrypt.cpp
     ${PROJECT_SOURCE_DIR}/src/electionguard/exception_handler.cpp
     ${PROJECT_SOURCE_DIR}/src/electionguard/group.cpp
+    ${PROJECT_SOURCE_DIR}/src/electionguard/guardian.cpp
     ${PROJECT_SOURCE_DIR}/src/electionguard/hash.cpp
     ${PROJECT_SOURCE_DIR}/src/electionguard/hmac.cpp
     ${PROJECT_SOURCE_DIR}/src/electionguard/log.hpp
