@@ -88,6 +88,15 @@ namespace electionguard
           std::unique_ptr<ElementModQ> cryptoBaseHash,
           std::unique_ptr<ElementModQ> cryptoExtendedBaseHash,
           std::unordered_map<std::string, std::string> extendedData);
+
+        /// v2.1 dual-key constructor (no manifestHash / commitmentHash)
+        explicit CiphertextElectionContext(
+          const uint64_t numberOfGuardians, const uint64_t quorum,
+          std::unique_ptr<ElementModP> elGamalPublicKey,
+          std::unique_ptr<ElementModP> ballotDataPublicKey,
+          std::unique_ptr<ElementModQ> cryptoBaseHash,
+          std::unique_ptr<ElementModQ> cryptoExtendedBaseHash);
+
         ~CiphertextElectionContext();
 
         CiphertextElectionContext &operator=(CiphertextElectionContext other);
@@ -135,6 +144,12 @@ namespace electionguard
         /// the `extended base hash code (𝑄')` in the [ElectionGuard Spec](https://github.com/microsoft/electionguard/wiki)
         /// </summary>
         const ElementModQ *getCryptoExtendedBaseHash() const;
+
+        /// <summary>
+        /// the ballot data public key K_hat (v2.1 dual-key scheme).
+        /// Returns nullptr if this context was constructed via the legacy make() path.
+        /// </summary>
+        const ElementModP *getBallotDataPublicKey() const;
 
         /// <summary>
         /// Get an unordered map containing the extended data of the election.
@@ -267,6 +282,47 @@ namespace electionguard
              const std::string &elGamalPublicKeyInHex, const std::string &commitmentHashInHex,
              const std::string &manifestHashInHex, std::unique_ptr<ContextConfiguration> config,
              std::unordered_map<std::string, std::string> extendedData);
+
+        // ── v2.1 dual-key make overload ────────────────────────────────────
+        /// <summary>
+        ///  Makes a CiphertextElectionContext using the v2.1 HMAC-based hash chain.
+        ///  H_P = H(version; 0x00, p, q, g, n, k)
+        ///  H_B = H(H_P;    0x01, len(manifest), manifest)
+        ///  H_E = H(H_B;    0x14, K, K_hat)
+        ///
+        /// <param name="numberOfGuardians"> n — number of guardians </param>
+        /// <param name="quorum">            k — quorum threshold  </param>
+        /// <param name="elGamalPublicKey">  K — joint vote public key  </param>
+        /// <param name="ballotDataPublicKey"> K_hat — ballot data public key </param>
+        /// <param name="manifestBytes">     raw serialized manifest bytes </param>
+        /// </summary>
+        static std::unique_ptr<CiphertextElectionContext>
+        make(uint64_t numberOfGuardians, uint64_t quorum,
+             std::unique_ptr<ElementModP> elGamalPublicKey,
+             std::unique_ptr<ElementModP> ballotDataPublicKey,
+             const std::vector<uint8_t> &manifestBytes);
+
+        // ── v2.1 hash-chain building blocks ───────────────────────────────
+        /// <summary>
+        /// v2.1 H_P = H(version; 0x00, p, q, g, n, k)
+        /// </summary>
+        static std::unique_ptr<ElementModQ>
+        computeParameterHash(uint64_t numberOfGuardians, uint64_t quorum);
+
+        /// <summary>
+        /// v2.1 H_B = H(H_P; 0x01, len(manifest), manifest)
+        /// </summary>
+        static std::unique_ptr<ElementModQ>
+        computeBaseHash(const ElementModQ *parameterHash,
+                        const std::vector<uint8_t> &manifestBytes);
+
+        /// <summary>
+        /// v2.1 H_E = H(H_B; 0x14, K, K_hat)
+        /// </summary>
+        static std::unique_ptr<ElementModQ>
+        computeExtendedHash(const ElementModQ *baseHash,
+                            const ElementModP *elGamalPublicKey,
+                            const ElementModP *ballotDataPublicKey);
 
         std::vector<uint8_t> toBson() const;
         std::string toJson() const;

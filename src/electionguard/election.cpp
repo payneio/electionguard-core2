@@ -1,5 +1,6 @@
 #include "electionguard/election.hpp"
 
+#include "electionguard/constants.h"
 #include "electionguard/hash.hpp"
 #include "log.hpp"
 #include "serialize.hpp"
@@ -40,6 +41,8 @@ namespace electionguard
         unique_ptr<ElementModQ> cryptoExtendedBaseHash;
         unordered_map<string, string> extendedData;
         unique_ptr<ContextConfiguration> configuration;
+        // v2.1: ballot data public key K_hat (nullptr for legacy contexts)
+        unique_ptr<ElementModP> ballotDataPublicKey;
 
         Impl(uint64_t numberOfGuardians, uint64_t quorum, unique_ptr<ElementModP> elGamalPublicKey,
              unique_ptr<ElementModQ> commitmentHash, unique_ptr<ElementModQ> manifestHash,
@@ -93,6 +96,21 @@ namespace electionguard
             this->quorum = quorum;
             this->configuration = move(config);
         }
+
+        // v2.1 dual-key constructor
+        Impl(uint64_t numberOfGuardians, uint64_t quorum, unique_ptr<ElementModP> elGamalPublicKey,
+             unique_ptr<ElementModP> ballotDataPublicKey,
+             unique_ptr<ElementModQ> cryptoBaseHash, unique_ptr<ElementModQ> cryptoExtendedBaseHash)
+            : elGamalPublicKey(move(elGamalPublicKey)),
+              ballotDataPublicKey(move(ballotDataPublicKey)),
+              cryptoBaseHash(move(cryptoBaseHash)),
+              cryptoExtendedBaseHash(move(cryptoExtendedBaseHash))
+        {
+            this->numberOfGuardians = numberOfGuardians;
+            this->quorum = quorum;
+            this->extendedData = {};
+            this->configuration = make_unique<ContextConfiguration>();
+        }
     };
 
     // Lifecycle Methods
@@ -135,6 +153,17 @@ namespace electionguard
                          move(config), move(extendedData)))
     {
     }
+    // v2.1 dual-key constructor
+    CiphertextElectionContext::CiphertextElectionContext(
+      uint64_t numberOfGuardians, uint64_t quorum, unique_ptr<ElementModP> elGamalPublicKey,
+      unique_ptr<ElementModP> ballotDataPublicKey, unique_ptr<ElementModQ> cryptoBaseHash,
+      unique_ptr<ElementModQ> cryptoExtendedBaseHash)
+        : pimpl(new Impl(numberOfGuardians, quorum, move(elGamalPublicKey),
+                         move(ballotDataPublicKey), move(cryptoBaseHash),
+                         move(cryptoExtendedBaseHash)))
+    {
+    }
+
     CiphertextElectionContext::~CiphertextElectionContext() = default;
 
     // Operator Overloads
@@ -179,6 +208,11 @@ namespace electionguard
     const ElementModQ *CiphertextElectionContext::getCryptoExtendedBaseHash() const
     {
         return pimpl->cryptoExtendedBaseHash.get();
+    }
+
+    const ElementModP *CiphertextElectionContext::getBallotDataPublicKey() const
+    {
+        return pimpl->ballotDataPublicKey.get();
     }
 
     const unordered_map<string, string> CiphertextElectionContext::getExtendedData() const
@@ -410,6 +444,56 @@ namespace electionguard
 
         return make(numberOfGuardians, quorum, move(elGamalPublicKey), move(commitmentHash),
                     move(manifestHash), move(config), move(extendedData));
+    }
+
+    // ── v2.1 dual-key make overload ───────────────────────────────────────────
+
+    unique_ptr<CiphertextElectionContext> CiphertextElectionContext::make(
+      uint64_t numberOfGuardians, uint64_t quorum, unique_ptr<ElementModP> elGamalPublicKey,
+      unique_ptr<ElementModP> ballotDataPublicKey, const vector<uint8_t> &manifestBytes)
+    {
+        auto parameterHash = computeParameterHash(numberOfGuardians, quorum);
+        auto baseHash = computeBaseHash(parameterHash.get(), manifestBytes);
+        auto extendedHash =
+          computeExtendedHash(baseHash.get(), elGamalPublicKey.get(), ballotDataPublicKey.get());
+
+        elGamalPublicKey->setIsFixedBase(true);
+
+        return make_unique<CiphertextElectionContext>(
+          numberOfGuardians, quorum, move(elGamalPublicKey), move(ballotDataPublicKey),
+          move(baseHash), move(extendedHash));
+    }
+
+    // ── v2.1 hash-chain building blocks ──────────────────────────────────────
+
+    unique_ptr<ElementModQ> CiphertextElectionContext::computeParameterHash(uint64_t n, uint64_t k)
+    {
+        // H_P = H(version; 0x00, p, q, g, n, k)
+        return hash_elems_v21(
+          EG_V21_VERSION_BYTES, EG_DS_PARAMETER_HASH,
+          {const_cast<ElementModP *>(&P()), const_cast<ElementModQ *>(&Q()),
+           const_cast<ElementModP *>(&G()), n, k});
+    }
+
+    unique_ptr<ElementModQ>
+    CiphertextElectionContext::computeBaseHash(const ElementModQ *parameterHash,
+                                               const vector<uint8_t> &manifestBytes)
+    {
+        // H_B = H(H_P; 0x01, len(manifest), manifest)
+        auto manifestLen = static_cast<uint64_t>(manifestBytes.size());
+        return hash_elems_v21(parameterHash, EG_DS_ELECTION_BASE_HASH,
+                              {manifestLen, manifestBytes});
+    }
+
+    unique_ptr<ElementModQ>
+    CiphertextElectionContext::computeExtendedHash(const ElementModQ *baseHash,
+                                                   const ElementModP *elGamalPublicKey,
+                                                   const ElementModP *ballotDataPublicKey)
+    {
+        // H_E = H(H_B; 0x14, K, K_hat)
+        return hash_elems_v21(baseHash, EG_DS_EXTENDED_BASE_HASH,
+                              {const_cast<ElementModP *>(elGamalPublicKey),
+                               const_cast<ElementModP *>(ballotDataPublicKey)});
     }
 
 #pragma endregion
