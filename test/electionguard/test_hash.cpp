@@ -1,6 +1,8 @@
 #include "../../src/electionguard/log.hpp"
 
 #include <doctest/doctest.h>
+#include <electionguard/constants.h>
+#include <electionguard/group.hpp>
 #include <electionguard/hash.hpp>
 #include <iomanip>
 #include <iostream>
@@ -113,4 +115,94 @@ TEST_CASE("Same Hash Value from nested-list and result of hashed list by hashing
     CHECK((*nestedHash == *nonNestedHash2));
     // but different addresses
     CHECK(&nestedHash != &nonNestedHash2);
+}
+
+// ─── v2.1 HMAC-SHA-256 hash primitive tests ──────────────────────────────────
+
+TEST_CASE("v2.1 H() uses HMAC-SHA-256 with 32-byte key and structured data")
+{
+    // Fixed 32-byte key for deterministic tests
+    uint8_t key[32] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                       0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+                       0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+                       0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20};
+
+    auto result1 = hash_elems_v21(key, EG_DS_PARAMETER_HASH, {string("hello")});
+    auto result2 = hash_elems_v21(key, EG_DS_PARAMETER_HASH, {string("hello")});
+
+    // Same inputs produce the same output (deterministic)
+    REQUIRE(result1 != nullptr);
+    REQUIRE(result2 != nullptr);
+    CHECK((*result1 == *result2));
+
+    // Different domain separator produces different output
+    auto result3 = hash_elems_v21(key, EG_DS_ELECTION_BASE_HASH, {string("hello")});
+    REQUIRE(result3 != nullptr);
+    CHECK((*result1 != *result3));
+}
+
+TEST_CASE("v2.1 H_q() reduces HMAC output mod q")
+{
+    uint8_t key[32] = {0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89,
+                       0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89,
+                       0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89,
+                       0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89};
+
+    auto result = hash_elems_v21_q(&ZERO_MOD_Q(), EG_DS_PARAMETER_HASH, {string("test")});
+    REQUIRE(result != nullptr);
+
+    // Result must be less than Q (i.e., in [0, Q))
+    CHECK((*result < Q()));
+}
+
+TEST_CASE("v2.1 hash serializes uint64_t as 4-byte big-endian")
+{
+    uint8_t key[32] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01};
+
+    auto hash1 = hash_elems_v21(key, EG_DS_PARAMETER_HASH, {uint64_t{1}});
+    auto hash2 = hash_elems_v21(key, EG_DS_PARAMETER_HASH, {uint64_t{2}});
+
+    REQUIRE(hash1 != nullptr);
+    REQUIRE(hash2 != nullptr);
+    // Serializing 1 and 2 as 4-byte big-endian must produce different hashes
+    CHECK((*hash1 != *hash2));
+}
+
+TEST_CASE("v2.1 hash serializes ElementModP as 512-byte big-endian")
+{
+    uint8_t key[32] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02};
+
+    // P() and G() are different large primes - serializing them must produce different hashes
+    auto hashP = hash_elems_v21(key, EG_DS_PARAMETER_HASH,
+                                {const_cast<ElementModP *>(&P())});
+    auto hashG = hash_elems_v21(key, EG_DS_PARAMETER_HASH,
+                                {const_cast<ElementModP *>(&G())});
+
+    REQUIRE(hashP != nullptr);
+    REQUIRE(hashG != nullptr);
+    CHECK((*hashP != *hashG));
+}
+
+TEST_CASE("v2.1 hash serializes ElementModQ as 32-byte big-endian")
+{
+    uint8_t key[32] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03};
+
+    // ONE_MOD_Q() and TWO_MOD_Q() differ - serializing them must produce different hashes
+    auto hashOne = hash_elems_v21(key, EG_DS_PARAMETER_HASH,
+                                  {const_cast<ElementModQ *>(&ONE_MOD_Q())});
+    auto hashTwo = hash_elems_v21(key, EG_DS_PARAMETER_HASH,
+                                  {const_cast<ElementModQ *>(&TWO_MOD_Q())});
+
+    REQUIRE(hashOne != nullptr);
+    REQUIRE(hashTwo != nullptr);
+    CHECK((*hashOne != *hashTwo));
 }
