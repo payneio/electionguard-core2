@@ -2,6 +2,7 @@
 
 #include "../../libs/hacl/Hacl_Bignum256.hpp"
 #include "../../libs/hacl/Hacl_Streaming_SHA2.hpp"
+#include "electionguard/hmac.hpp"
 #include "log.hpp"
 
 #include <cstring>
@@ -256,4 +257,237 @@ namespace electionguard
         p->update(const_cast<uint8_t *>(input), input_string.size());
         p->update(static_cast<uint8_t *>(delimiter), sizeof(delimiter));
     }
+
+    // ─────────────────────── v2.1 HMAC-SHA-256 implementation ──────────────────
+
+    /// Pad `bytes` with leading zero bytes so the total length is `targetLen`.
+    /// If `bytes.size() >= targetLen` nothing is done.
+    static void pad_leading_zeros(vector<uint8_t> &bytes, size_t targetLen)
+    {
+        if (bytes.size() < targetLen) {
+            bytes.insert(bytes.begin(), targetLen - bytes.size(), 0x00);
+        }
+    }
+
+    /// Append the v2.1 binary serialisation of a single CryptoHashableType
+    /// argument to `buf`.
+    static void serialize_arg(vector<uint8_t> &buf, CryptoHashableType a)
+    {
+        switch (a.index()) {
+            case NULL_PTR: // nullptr_t → skip (zero contribution)
+                break;
+
+            case CRYPTOHASHABLE_PTR: // CryptoHashable* → hash it, then emit 32 bytes
+            {
+                auto hashed = get<CryptoHashable *>(a)->crypto_hash();
+                auto bytes = hashed->toBytes();
+                pad_leading_zeros(bytes, MAX_Q_SIZE);
+                buf.insert(buf.end(), bytes.begin(), bytes.end());
+                break;
+            }
+
+            case ELEMENTMODP_PTR: // ElementModP* → 512 bytes big-endian
+            {
+                auto bytes = get<ElementModP *>(a)->toBytes();
+                pad_leading_zeros(bytes, MAX_P_SIZE);
+                buf.insert(buf.end(), bytes.begin(), bytes.end());
+                break;
+            }
+
+            case ELEMENTMODQ_PTR: // ElementModQ* → 32 bytes big-endian
+            {
+                auto bytes = get<ElementModQ *>(a)->toBytes();
+                pad_leading_zeros(bytes, MAX_Q_SIZE);
+                buf.insert(buf.end(), bytes.begin(), bytes.end());
+                break;
+            }
+
+            case CRYPTOHASHABLE_REF: {
+                auto hashed = get<reference_wrapper<CryptoHashable>>(a).get().crypto_hash();
+                auto bytes = hashed->toBytes();
+                pad_leading_zeros(bytes, MAX_Q_SIZE);
+                buf.insert(buf.end(), bytes.begin(), bytes.end());
+                break;
+            }
+
+            case ELEMENTMODP_REF: {
+                auto bytes = get<reference_wrapper<ElementModP>>(a).get().toBytes();
+                pad_leading_zeros(bytes, MAX_P_SIZE);
+                buf.insert(buf.end(), bytes.begin(), bytes.end());
+                break;
+            }
+
+            case ELEMENTMODQ_REF: {
+                auto bytes = get<reference_wrapper<ElementModQ>>(a).get().toBytes();
+                pad_leading_zeros(bytes, MAX_Q_SIZE);
+                buf.insert(buf.end(), bytes.begin(), bytes.end());
+                break;
+            }
+
+            case CRYPTOHASHABLE_CONST_REF: {
+                auto hashed =
+                  get<reference_wrapper<const CryptoHashable>>(a).get().crypto_hash();
+                auto bytes = hashed->toBytes();
+                pad_leading_zeros(bytes, MAX_Q_SIZE);
+                buf.insert(buf.end(), bytes.begin(), bytes.end());
+                break;
+            }
+
+            case ELEMENTMODP_CONST_REF: {
+                auto bytes = get<reference_wrapper<const ElementModP>>(a).get().toBytes();
+                pad_leading_zeros(bytes, MAX_P_SIZE);
+                buf.insert(buf.end(), bytes.begin(), bytes.end());
+                break;
+            }
+
+            case ELEMENTMODQ_CONST_REF: {
+                auto bytes = get<reference_wrapper<const ElementModQ>>(a).get().toBytes();
+                pad_leading_zeros(bytes, MAX_Q_SIZE);
+                buf.insert(buf.end(), bytes.begin(), bytes.end());
+                break;
+            }
+
+            case UINT64_T: // uint64_t → 4 bytes big-endian (low 32 bits)
+            {
+                auto val = static_cast<uint32_t>(get<uint64_t>(a));
+                buf.push_back(static_cast<uint8_t>((val >> 24) & 0xFF));
+                buf.push_back(static_cast<uint8_t>((val >> 16) & 0xFF));
+                buf.push_back(static_cast<uint8_t>((val >> 8) & 0xFF));
+                buf.push_back(static_cast<uint8_t>(val & 0xFF));
+                break;
+            }
+
+            case STRING: // string → raw UTF-8 bytes
+            {
+                const auto &s = get<string>(a);
+                buf.insert(buf.end(), s.begin(), s.end());
+                break;
+            }
+
+            case VECTOR_CRYPTOHASHABLE_PTR: {
+                for (auto *elem : get<vector<CryptoHashable *>>(a)) {
+                    auto hashed = elem->crypto_hash();
+                    auto bytes = hashed->toBytes();
+                    pad_leading_zeros(bytes, MAX_Q_SIZE);
+                    buf.insert(buf.end(), bytes.begin(), bytes.end());
+                }
+                break;
+            }
+
+            case VECTOR_ELEMENTMODP_PTR: {
+                for (auto *elem : get<vector<ElementModP *>>(a)) {
+                    auto bytes = elem->toBytes();
+                    pad_leading_zeros(bytes, MAX_P_SIZE);
+                    buf.insert(buf.end(), bytes.begin(), bytes.end());
+                }
+                break;
+            }
+
+            case VECTOR_ELEMENTMODQ_PTR: {
+                for (auto *elem : get<vector<ElementModQ *>>(a)) {
+                    auto bytes = elem->toBytes();
+                    pad_leading_zeros(bytes, MAX_Q_SIZE);
+                    buf.insert(buf.end(), bytes.begin(), bytes.end());
+                }
+                break;
+            }
+
+            case VECTOR_ELEMENTMODP_REF: {
+                for (const auto &ref : get<vector<reference_wrapper<ElementModP>>>(a)) {
+                    auto bytes = ref.get().toBytes();
+                    pad_leading_zeros(bytes, MAX_P_SIZE);
+                    buf.insert(buf.end(), bytes.begin(), bytes.end());
+                }
+                break;
+            }
+
+            case VECTOR_ELEMENTMODQ_REF: {
+                for (const auto &ref : get<vector<reference_wrapper<ElementModQ>>>(a)) {
+                    auto bytes = ref.get().toBytes();
+                    pad_leading_zeros(bytes, MAX_Q_SIZE);
+                    buf.insert(buf.end(), bytes.begin(), bytes.end());
+                }
+                break;
+            }
+
+            case VECTOR_ELEMENTMODP_CONST_REF: {
+                for (const auto &ref :
+                     get<vector<reference_wrapper<const ElementModP>>>(a)) {
+                    auto bytes = ref.get().toBytes();
+                    pad_leading_zeros(bytes, MAX_P_SIZE);
+                    buf.insert(buf.end(), bytes.begin(), bytes.end());
+                }
+                break;
+            }
+
+            case VECTOR_ELEMENTMODQ_CONST_REF: {
+                for (const auto &ref :
+                     get<vector<reference_wrapper<const ElementModQ>>>(a)) {
+                    auto bytes = ref.get().toBytes();
+                    pad_leading_zeros(bytes, MAX_Q_SIZE);
+                    buf.insert(buf.end(), bytes.begin(), bytes.end());
+                }
+                break;
+            }
+
+            case VECTOR_UINT8_T: // vector<uint8_t> → raw bytes
+            {
+                const auto &bytes = get<vector<uint8_t>>(a);
+                buf.insert(buf.end(), bytes.begin(), bytes.end());
+                break;
+            }
+
+            default:
+                // Remaining types (VECTOR_CRYPTOHASHABLE_REF, VECTOR_CRYPTOHASHABLE_CONST_REF,
+                // VECTOR_UINT64_T, VECTOR_STRING) — not serialised in v2.1 binary mode.
+                break;
+        }
+    }
+
+    // ── Public v2.1 API ──────────────────────────────────────────────────────
+
+    unique_ptr<ElementModQ> hash_elems_v21(const uint8_t keyBytes[32],
+                                            uint8_t domainSeparator,
+                                            const vector<CryptoHashableType> &args)
+    {
+        // Build B_1: domainSeparator || serialise(arg0) || serialise(arg1) || ...
+        vector<uint8_t> data;
+        data.push_back(domainSeparator);
+        for (const auto &arg : args) {
+            serialize_arg(data, arg);
+        }
+
+        // B_0 (HMAC key) as a vector
+        vector<uint8_t> key(keyBytes, keyBytes + 32);
+
+        // HMAC-SHA-256(key, data) — pass length=0 so HMAC::compute uses data as-is
+        auto hmac = HMAC::compute(key, data, 0, 0);
+
+        // Wrap raw 32-byte result in an unchecked ElementModQ (may be >= Q)
+        return bytes_to_q(hmac, true);
+    }
+
+    unique_ptr<ElementModQ> hash_elems_v21(const ElementModQ *key,
+                                            uint8_t domainSeparator,
+                                            const vector<CryptoHashableType> &args)
+    {
+        // Extract exactly 32 bytes from the key (big-endian, left-padded with zeros)
+        auto keyBytes = key->toBytes();
+        pad_leading_zeros(keyBytes, MAX_Q_SIZE);
+
+        uint8_t keyArray[32];
+        memcpy(keyArray, keyBytes.data(), MAX_Q_SIZE);
+
+        return hash_elems_v21(keyArray, domainSeparator, args);
+    }
+
+    unique_ptr<ElementModQ> hash_elems_v21_q(const ElementModQ *key,
+                                              uint8_t domainSeparator,
+                                              const vector<CryptoHashableType> &args)
+    {
+        auto result = hash_elems_v21(key, domainSeparator, args);
+        // Reduce mod q: add 0 is the canonical way to invoke the modular reduction
+        return add_mod_q(*result, ZERO_MOD_Q());
+    }
+
 } // namespace electionguard
