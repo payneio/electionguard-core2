@@ -5,6 +5,8 @@
 #include "electionguard/precompute_buffers.hpp"
 #include "log.hpp"
 
+#include <electionguard/constants.h>
+
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -22,6 +24,7 @@ using std::reference_wrapper;
 using std::string;
 using std::to_string;
 using std::unique_ptr;
+using std::vector;
 
 namespace electionguard
 {
@@ -1193,6 +1196,321 @@ namespace electionguard
         // Log::trace("ConstantChaumPedersenProof::isValid: TRUE!");
         return true;
     }
+#pragma endregion
+
+
+#pragma region UnifiedRangeProof
+
+    struct UnifiedRangeProof::Impl {
+        unique_ptr<ElementModQ> challenge;
+        vector<unique_ptr<ElementModQ>> subChallenges;
+        vector<unique_ptr<ElementModQ>> responses;
+        // Stored commitments (a_j = pads[j], b_j = datas[j]).
+        // Required so the hash check uses exactly the values from construction,
+        // rather than a recomputed form that may differ in representation.
+        vector<unique_ptr<ElementModP>> pads;
+        vector<unique_ptr<ElementModP>> datas;
+
+        Impl(unique_ptr<ElementModQ> c, vector<unique_ptr<ElementModQ>> sc,
+             vector<unique_ptr<ElementModQ>> r, vector<unique_ptr<ElementModP>> pads_,
+             vector<unique_ptr<ElementModP>> datas_)
+            : challenge(move(c)), subChallenges(move(sc)), responses(move(r)),
+              pads(move(pads_)), datas(move(datas_))
+        {
+        }
+
+        [[nodiscard]] unique_ptr<UnifiedRangeProof::Impl> clone() const
+        {
+            auto _c = challenge->clone();
+            vector<unique_ptr<ElementModQ>> _sc, _r;
+            vector<unique_ptr<ElementModP>> _pads, _datas;
+            for (const auto &x : subChallenges) {
+                _sc.push_back(x->clone());
+            }
+            for (const auto &x : responses) {
+                _r.push_back(x->clone());
+            }
+            for (const auto &x : pads) {
+                _pads.push_back(make_unique<ElementModP>(*x));
+            }
+            for (const auto &x : datas) {
+                _datas.push_back(make_unique<ElementModP>(*x));
+            }
+            return make_unique<UnifiedRangeProof::Impl>(move(_c), move(_sc), move(_r),
+                                                        move(_pads), move(_datas));
+        }
+
+        bool verify(const ElGamalCiphertext &message, const ElementModP &K,
+                    const ElementModQ &H_I, uint64_t contestIndex,
+                    int64_t selectionIndex) const;
+    };
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
+
+    UnifiedRangeProof::UnifiedRangeProof(const UnifiedRangeProof &other)
+        : pimpl(other.pimpl->clone())
+    {
+    }
+
+    UnifiedRangeProof::UnifiedRangeProof(UnifiedRangeProof &&other) : pimpl(move(other.pimpl)) {}
+
+    UnifiedRangeProof::UnifiedRangeProof(unique_ptr<ElementModQ> challenge,
+                                         vector<unique_ptr<ElementModQ>> subChallenges,
+                                         vector<unique_ptr<ElementModQ>> responses)
+        : pimpl(new Impl(move(challenge), move(subChallenges), move(responses), {}, {}))
+    {
+    }
+
+    UnifiedRangeProof::UnifiedRangeProof(unique_ptr<ElementModQ> challenge,
+                                         vector<unique_ptr<ElementModQ>> subChallenges,
+                                         vector<unique_ptr<ElementModQ>> responses,
+                                         vector<unique_ptr<ElementModP>> pads,
+                                         vector<unique_ptr<ElementModP>> datas)
+        : pimpl(new Impl(move(challenge), move(subChallenges), move(responses), move(pads),
+                         move(datas)))
+    {
+    }
+
+    UnifiedRangeProof::~UnifiedRangeProof() = default;
+
+    // ── Property Getters ─────────────────────────────────────────────────────
+
+    const ElementModQ *UnifiedRangeProof::getChallenge() const
+    {
+        return pimpl->challenge.get();
+    }
+
+    uint64_t UnifiedRangeProof::getChallengeCount() const
+    {
+        return static_cast<uint64_t>(pimpl->subChallenges.size());
+    }
+
+    const ElementModQ *UnifiedRangeProof::getSubChallenge(uint64_t index) const
+    {
+        return pimpl->subChallenges.at(index).get();
+    }
+
+    const ElementModQ *UnifiedRangeProof::getResponse(uint64_t index) const
+    {
+        return pimpl->responses.at(index).get();
+    }
+
+    /// Compute beta * K^(-j) mod p.
+    ///
+    /// The ciphertext uses base-K ElGamal encoding:
+    ///   alpha = g^r,  beta = K^(r + plaintext)
+    /// so beta / K^j = K^(r + plaintext - j), which equals K^r when j == plaintext.
+    ///
+    /// For j == 0 this is just beta (K^0 = 1).
+    /// For j > 0 we compute K^(q-j) = K^(-j) mod p (K has order dividing q).
+    static unique_ptr<ElementModP> urpBetaAdjusted(const ElementModP &beta,
+                                                    const ElementModP &K, uint64_t j)
+    {
+        if (j == 0) {
+            return make_unique<ElementModP>(beta);
+        }
+        // K^(-j) = K^(q - j)
+        auto j_q = ElementModQ::fromUint64(j, true);
+        auto neg_j_q = sub_from_q(*j_q); // q - j
+        auto K_neg_j = pow_mod_p(K, *neg_j_q);
+        return mul_mod_p(beta, *K_neg_j);
+    }
+
+    // Out-of-line definition of Impl::verify
+    bool UnifiedRangeProof::Impl::verify(const ElGamalCiphertext &message, const ElementModP &K,
+                                         const ElementModQ &H_I, uint64_t contestIndex,
+                                         int64_t selectionIndex) const
+    {
+        auto *alpha = message.getPad();
+        auto *beta = message.getData();
+        const uint64_t n = static_cast<uint64_t>(subChallenges.size());
+
+        // ── Check 1: challenge hash ───────────────────────────────────────────
+        // Use stored commitment values (pads[j], datas[j]) so the hash is
+        // computed over exactly the same data as during construction.
+        vector<CryptoHashableType> args;
+        args.push_back(static_cast<uint64_t>(contestIndex));
+        if (selectionIndex >= 0) {
+            args.push_back(static_cast<uint64_t>(static_cast<uint64_t>(selectionIndex)));
+        }
+        args.push_back(alpha);
+        args.push_back(beta);
+        for (uint64_t j = 0; j < n; j++) {
+            args.push_back(pads[j].get());
+            args.push_back(datas[j].get());
+        }
+        auto c_computed = hash_elems_v21_q(&H_I, EG_DS_RANGE_PROOF, args);
+        if (*c_computed != *challenge) {
+            Log::debug("UnifiedRangeProof::verify: challenge mismatch");
+            return false;
+        }
+
+        // ── Check 2: sum of sub-challenges equals overall challenge ───────────
+        auto c_sum = ZERO_MOD_Q().clone();
+        for (uint64_t j = 0; j < n; j++) {
+            c_sum = add_mod_q(*c_sum, *subChallenges[j]);
+        }
+        if (*c_sum != *challenge) {
+            Log::debug("UnifiedRangeProof::verify: sub-challenge sum mismatch");
+            return false;
+        }
+
+        // ── Check 3: commitment equations for each branch ────────────────────
+        // a_j == g^v_j * alpha^c_j
+        // b_j == K^v_j * (beta * g^{-j})^c_j
+        for (uint64_t j = 0; j < n; j++) {
+            const auto &cj = *subChallenges[j];
+            const auto &vj = *responses[j];
+            auto beta_adj = urpBetaAdjusted(*beta, K, j);
+
+            auto a_check = mul_mod_p(*g_pow_p(vj), *pow_mod_p(*alpha, cj));
+            if (*a_check != *pads[j]) {
+                Log::debug("UnifiedRangeProof::verify: a_j mismatch at j=" + to_string(j));
+                return false;
+            }
+
+            auto b_check = mul_mod_p(*pow_mod_p(K, vj), *pow_mod_p(*beta_adj, cj));
+            if (*b_check != *datas[j]) {
+                Log::debug("UnifiedRangeProof::verify: b_j mismatch at j=" + to_string(j));
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// Core construction.
+    /// selectionIndex < 0 signals a contest-limit proof (no ind_o in hash).
+    static unique_ptr<UnifiedRangeProof>
+    makeUnifiedInternal(const ElGamalCiphertext &message, const ElementModQ &r, uint64_t selected,
+                        uint64_t R_plus_1, const ElementModP &K, const ElementModQ &H_I,
+                        uint64_t contestIndex, int64_t selectionIndex)
+    {
+        auto *alpha = message.getPad();
+        auto *beta = message.getData();
+
+        const uint64_t n = R_plus_1;
+
+        vector<unique_ptr<ElementModP>> a_vals(n);
+        vector<unique_ptr<ElementModP>> b_vals(n);
+        vector<unique_ptr<ElementModQ>> c_vals(n);
+        vector<unique_ptr<ElementModQ>> v_vals(n);
+
+        unique_ptr<ElementModQ> u_sel;
+
+        for (uint64_t j = 0; j < n; j++) {
+            auto beta_adj = urpBetaAdjusted(*beta, K, j);
+
+            if (j == selected) {
+                // Real branch: commitment only, response computed after challenge
+                u_sel = rand_q();
+                a_vals[j] = g_pow_p(*u_sel);
+                b_vals[j] = pow_mod_p(K, *u_sel);
+            } else {
+                // Fake branch: pick random c_j and v_j, then simulate
+                c_vals[j] = rand_q();
+                v_vals[j] = rand_q();
+                // a_j = g^v_j * alpha^c_j
+                a_vals[j] =
+                  mul_mod_p(*g_pow_p(*v_vals[j]), *pow_mod_p(*alpha, *c_vals[j]));
+                // b_j = K^v_j * (beta/g^j)^c_j
+                b_vals[j] = mul_mod_p(*pow_mod_p(K, *v_vals[j]),
+                                       *pow_mod_p(*beta_adj, *c_vals[j]));
+            }
+        }
+
+        // ── Build challenge hash ──────────────────────────────────────────────
+        // H_q(H_I ; 0x24, ind_c [, ind_o], alpha, beta, a_0, b_0, ..., a_R, b_R)
+        vector<CryptoHashableType> args;
+        args.push_back(static_cast<uint64_t>(contestIndex));
+        if (selectionIndex >= 0) {
+            args.push_back(static_cast<uint64_t>(static_cast<uint64_t>(selectionIndex)));
+        }
+        args.push_back(alpha);
+        args.push_back(beta);
+        for (uint64_t j = 0; j < n; j++) {
+            args.push_back(a_vals[j].get());
+            args.push_back(b_vals[j].get());
+        }
+        auto c = hash_elems_v21_q(&H_I, EG_DS_RANGE_PROOF, args);
+
+        // ── c_selected = c - sum(fake c_j) mod q ─────────────────────────────
+        auto c_sum_fake = ZERO_MOD_Q().clone();
+        for (uint64_t j = 0; j < n; j++) {
+            if (j != selected) {
+                c_sum_fake = add_mod_q(*c_sum_fake, *c_vals[j]);
+            }
+        }
+        c_vals[selected] = sub_mod_q(*c, *c_sum_fake);
+
+        // ── v_selected = u_selected - c_selected * r mod q ───────────────────
+        v_vals[selected] = a_minus_bc_mod_q(*u_sel, *c_vals[selected], r);
+
+        // Assemble
+        vector<unique_ptr<ElementModQ>> sub_challenges, responses_vec;
+        vector<unique_ptr<ElementModP>> stored_pads, stored_datas;
+        sub_challenges.reserve(n);
+        responses_vec.reserve(n);
+        stored_pads.reserve(n);
+        stored_datas.reserve(n);
+        for (uint64_t j = 0; j < n; j++) {
+            sub_challenges.push_back(move(c_vals[j]));
+            responses_vec.push_back(move(v_vals[j]));
+            stored_pads.push_back(make_unique<ElementModP>(*a_vals[j]));
+            stored_datas.push_back(make_unique<ElementModP>(*b_vals[j]));
+        }
+
+        return make_unique<UnifiedRangeProof>(move(c), move(sub_challenges), move(responses_vec),
+                                              move(stored_pads), move(stored_datas));
+    }
+
+    // ── Public Static Factory ────────────────────────────────────────────────
+
+    unique_ptr<UnifiedRangeProof>
+    UnifiedRangeProof::make(const ElGamalCiphertext &message, const ElementModQ &r,
+                            uint64_t selected, uint64_t maxLimit, const ElementModP &k,
+                            const ElementModQ &selectionEncId, uint64_t contestIndex,
+                            uint64_t selectionIndex)
+    {
+        if (selected > maxLimit) {
+            throw invalid_argument(
+              "UnifiedRangeProof::make: selected must be <= maxLimit");
+        }
+        return makeUnifiedInternal(message, r, selected, maxLimit + 1, k, selectionEncId,
+                                   contestIndex, static_cast<int64_t>(selectionIndex));
+    }
+
+    unique_ptr<UnifiedRangeProof>
+    UnifiedRangeProof::makeContestLimit(const ElGamalCiphertext &message, const ElementModQ &r,
+                                        uint64_t selected, uint64_t maxLimit, const ElementModP &k,
+                                        const ElementModQ &selectionEncId, uint64_t contestIndex)
+    {
+        if (selected > maxLimit) {
+            throw invalid_argument(
+              "UnifiedRangeProof::makeContestLimit: selected must be <= maxLimit");
+        }
+        return makeUnifiedInternal(message, r, selected, maxLimit + 1, k, selectionEncId,
+                                   contestIndex, -1);
+    }
+
+    // ── Public Verification Methods ──────────────────────────────────────────
+
+    bool UnifiedRangeProof::isValid(const ElGamalCiphertext &message, const ElementModP &k,
+                                    const ElementModQ &selectionEncId, uint64_t contestIndex,
+                                    uint64_t selectionIndex) const
+    {
+        return pimpl->verify(message, k, selectionEncId, contestIndex,
+                             static_cast<int64_t>(selectionIndex));
+    }
+
+    bool UnifiedRangeProof::isValidContestLimit(const ElGamalCiphertext &message,
+                                                const ElementModP &k,
+                                                const ElementModQ &selectionEncId,
+                                                uint64_t contestIndex) const
+    {
+        return pimpl->verify(message, k, selectionEncId, contestIndex, -1);
+    }
+
 #pragma endregion
 
 } // namespace electionguard
