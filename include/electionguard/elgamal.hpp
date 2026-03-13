@@ -461,6 +461,45 @@ namespace electionguard
         bool isNonceProofValid(const ElementModP *ballotDataKey,
                                const ElementModQ *selectionEncId) const;
 
+        /// <summary>
+        /// v2.1 contest data encryption with K_hat via hashed ElGamal + KDF.
+        ///
+        /// 1. Nonce: xi = H_q(H_I; 0x25, ind_c, xi_B)
+        /// 2. DH pair: (alpha, beta) = (g^xi, K_hat^xi)
+        /// 3. Secret key: h = H(H_I; 0x26, ind_c, alpha, beta)
+        /// 4. KDF: label "data_enc_keys", context "contest_data" || be32(ind_c), derive b keys
+        /// 5. Ciphertext: C_0 = alpha, C_1 = D_1 XOR k_1 || ... || D_b XOR k_b
+        /// 6. Schnorr proof: c = H_q(H_I; 0x27, ind_c, g^u, C_0, C_1)
+        ///
+        /// <param name="contestData">The plaintext data to encrypt (must be multiple of 32 bytes).</param>
+        /// <param name="ballotDataKey">K_hat — the joint data public key.</param>
+        /// <param name="selectionEncId">H_I — the selection encryption identifier.</param>
+        /// <param name="contestIndex">ind_c — the contest index.</param>
+        /// <param name="ballotNonce">xi_B — the ballot nonce.</param>
+        /// <returns>HashedElGamalCiphertext where pad=alpha, data=ciphertext, mac=proof.</returns>
+        /// </summary>
+        static std::unique_ptr<HashedElGamalCiphertext>
+        encryptContestData(const std::vector<uint8_t> &contestData,
+                           const ElementModP *ballotDataKey,
+                           const ElementModQ *selectionEncId,
+                           uint64_t contestIndex,
+                           const ElementModQ *ballotNonce);
+
+        /// <summary>
+        /// v2.1 contest data decryption: reverses encryptContestData.
+        /// </summary>
+        std::vector<uint8_t>
+        decryptContestData(const ElementModQ *secretKey,
+                           const ElementModQ *selectionEncId,
+                           uint64_t contestIndex) const;
+
+        /// <summary>
+        /// Verify the Schnorr proof on contest data encryption.
+        /// </summary>
+        bool isContestDataProofValid(const ElementModP *ballotDataKey,
+                                     const ElementModQ *selectionEncId,
+                                     uint64_t contestIndex) const;
+
       private:
         class Impl;
 #pragma warning(suppress : 4251)

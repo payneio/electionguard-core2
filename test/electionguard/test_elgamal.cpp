@@ -730,3 +730,58 @@ TEST_CASE("v2.1 ballot nonce encryption: signed hashed ElGamal with K_hat")
 
     CHECK(encrypted->isNonceProofValid(K_hat, H_I.get()));
 }
+
+TEST_CASE("v2.1 contest data encryption with K_hat via hashed ElGamal + KDF")
+{
+    auto keypair = ElGamalKeyPair::fromSecret(TWO_MOD_Q());
+    auto H_I = rand_q();
+    auto xi_B = rand_q();
+    uint64_t contestIndex = 0;
+    vector<uint8_t> contestData(64, 0xAB); // 2 blocks of 32
+
+    auto encrypted = HashedElGamalCiphertext::encryptContestData(
+        contestData, keypair->getPublicKey(), H_I.get(), contestIndex, xi_B.get());
+    REQUIRE(encrypted != nullptr);
+
+    auto decrypted = encrypted->decryptContestData(
+        keypair->getSecretKey(), H_I.get(), contestIndex);
+    REQUIRE(decrypted.size() == 64);
+    CHECK(decrypted == contestData);
+
+    CHECK(encrypted->isContestDataProofValid(keypair->getPublicKey(), H_I.get(), contestIndex));
+}
+
+TEST_CASE("v2.1 contest data encryption: single block (32 bytes)")
+{
+    auto keypair = ElGamalKeyPair::fromSecret(TWO_MOD_Q());
+    auto H_I = rand_q();
+    auto xi_B = rand_q();
+    uint64_t contestIndex = 1;
+    vector<uint8_t> contestData(32, 0xCD); // 1 block
+
+    auto encrypted = HashedElGamalCiphertext::encryptContestData(
+        contestData, keypair->getPublicKey(), H_I.get(), contestIndex, xi_B.get());
+    REQUIRE(encrypted != nullptr);
+
+    auto decrypted = encrypted->decryptContestData(
+        keypair->getSecretKey(), H_I.get(), contestIndex);
+    CHECK(decrypted == contestData);
+}
+
+TEST_CASE("v2.1 contest data encryption: wrong key fails decryption")
+{
+    auto keypair1 = ElGamalKeyPair::fromSecret(TWO_MOD_Q());
+    auto keypair2 = ElGamalKeyPair::fromSecret(*rand_q());
+    auto H_I = rand_q();
+    auto xi_B = rand_q();
+    uint64_t contestIndex = 0;
+    vector<uint8_t> contestData(32, 0xEF);
+
+    auto encrypted = HashedElGamalCiphertext::encryptContestData(
+        contestData, keypair1->getPublicKey(), H_I.get(), contestIndex, xi_B.get());
+
+    // Decrypting with wrong key should produce garbage
+    auto decrypted = encrypted->decryptContestData(
+        keypair2->getSecretKey(), H_I.get(), contestIndex);
+    CHECK(decrypted != contestData);
+}
