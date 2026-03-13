@@ -418,6 +418,49 @@ namespace electionguard
         /// </Summary>
         std::unique_ptr<HashedElGamalCiphertext> clone() const;
 
+        /// <summary>
+        /// v2.1 ballot nonce encryption: signed hashed ElGamal with KDF.
+        ///
+        /// 1. Random xi_hat_B; (alpha_B, beta_B) = (g^xi_hat_B, K_hat^xi_hat_B)
+        /// 2. h = H(H_I; 0x22, alpha_B, beta_B)
+        /// 3. KDF: label "ballot_nonce", context "ballot_nonce_encrypt", derive 1 key
+        /// 4. C_1 = bytes(xi_B, 32) XOR k_1
+        /// 5. Schnorr proof: c_B = H_q(H_I; 0x23, g^u_B, C_0, C_1)
+        ///
+        /// <param name="ballotNonce">xi_B — the ballot nonce to encrypt.</param>
+        /// <param name="ballotDataKey">K_hat — the joint data public key.</param>
+        /// <param name="selectionEncId">H_I — the selection encryption identifier.</param>
+        /// <returns>HashedElGamalCiphertext where pad=alpha_B, data=C_1, mac=proof bytes.</returns>
+        /// </summary>
+        static std::unique_ptr<HashedElGamalCiphertext>
+        encryptBallotNonce(const ElementModQ *ballotNonce,
+                           const ElementModP *ballotDataKey,
+                           const ElementModQ *selectionEncId);
+
+        /// <summary>
+        /// v2.1 ballot nonce decryption: reverses encryptBallotNonce.
+        ///
+        /// Recomputes beta = alpha^secretKey, derives the same KDF key,
+        /// and XOR-decrypts C_1 to recover xi_B.
+        ///
+        /// <param name="secretKey">The secret key corresponding to K_hat.</param>
+        /// <param name="selectionEncId">H_I — must match the value used during encryption.</param>
+        /// <returns>The decrypted ballot nonce xi_B.</returns>
+        /// </summary>
+        std::unique_ptr<ElementModQ>
+        decryptBallotNonce(const ElementModQ *secretKey,
+                           const ElementModQ *selectionEncId) const;
+
+        /// <summary>
+        /// Verify the Schnorr proof that the encryptor knew xi_hat_B.
+        ///
+        /// <param name="ballotDataKey">K_hat — the joint data public key.</param>
+        /// <param name="selectionEncId">H_I — the selection encryption identifier.</param>
+        /// <returns>true iff the proof is valid.</returns>
+        /// </summary>
+        bool isNonceProofValid(const ElementModP *ballotDataKey,
+                               const ElementModQ *selectionEncId) const;
+
       private:
         class Impl;
 #pragma warning(suppress : 4251)

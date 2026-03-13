@@ -7,6 +7,7 @@
 #include <electionguard/elgamal.hpp>
 #include <electionguard/group.hpp>
 #include <electionguard/hash.hpp>
+#include <electionguard/kdf.hpp>
 #include <electionguard/nonces.hpp>
 #include <electionguard/precompute_buffers.hpp>
 #include <stdexcept>
@@ -710,4 +711,22 @@ TEST_CASE("HashedElGamalCiphertext encrypt and decrypt with hard coded data for 
                       *cryptoExtendedBaseHash, true);
 
     CHECK(plaintext == new_plaintext);
+}
+
+TEST_CASE("v2.1 ballot nonce encryption: signed hashed ElGamal with K_hat")
+{
+    auto keypair = ElGamalKeyPair::fromSecret(TWO_MOD_Q());
+    auto *K_hat = keypair->getPublicKey();
+    auto H_I = rand_q();
+    auto xi_B = rand_q(); // ballot nonce to encrypt
+
+    auto encrypted = HashedElGamalCiphertext::encryptBallotNonce(
+        xi_B.get(), K_hat, H_I.get());
+    REQUIRE(encrypted != nullptr);
+
+    auto decrypted = encrypted->decryptBallotNonce(keypair->getSecretKey(), H_I.get());
+    REQUIRE(decrypted != nullptr);
+    CHECK((*decrypted == *xi_B));   // Round-trip
+
+    CHECK(encrypted->isNonceProofValid(K_hat, H_I.get()));
 }
