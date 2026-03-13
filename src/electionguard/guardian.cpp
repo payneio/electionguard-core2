@@ -557,6 +557,65 @@ namespace electionguard
         return make_unique<DecryptedShare>(move(vote_share), move(data_share));
     }
 
+    unique_ptr<ElementModP>
+    GuardianKeySet::computeJointVoteKey(vector<const GuardianKeySet *> guardians)
+    {
+        if (guardians.empty()) {
+            return nullptr;
+        }
+        auto K = guardians[0]->getVotePublicKey()->clone();
+        for (size_t i = 1; i < guardians.size(); ++i) {
+            K = mul_mod_p(*K, *guardians[i]->getVotePublicKey());
+        }
+        return K;
+    }
+
+    unique_ptr<ElementModP>
+    GuardianKeySet::computeJointDataKey(vector<const GuardianKeySet *> guardians)
+    {
+        if (guardians.empty()) {
+            return nullptr;
+        }
+        auto K_hat = guardians[0]->getDataPublicKey()->clone();
+        for (size_t i = 1; i < guardians.size(); ++i) {
+            K_hat = mul_mod_p(*K_hat, *guardians[i]->getDataPublicKey());
+        }
+        return K_hat;
+    }
+
+    unique_ptr<ElementModQ>
+    GuardianKeySet::computeGuardianRecordHash(const ElementModQ *hb, const ElementModP *K,
+                                              const ElementModP *K_hat,
+                                              vector<const GuardianKeySet *> guardians)
+    {
+        vector<CryptoHashableType> args;
+
+        // Joint vote key and joint data key
+        args.push_back(const_cast<ElementModP *>(K));
+        args.push_back(const_cast<ElementModP *>(K_hat));
+
+        // All vote commitments: K_{1,0},...,K_{1,k-1}, K_{2,0},...,K_{n,k-1}
+        for (const auto *guardian : guardians) {
+            for (auto *commitment : guardian->getVoteCommitments()) {
+                args.push_back(commitment);
+            }
+        }
+
+        // All data commitments: K̂_{1,0},...,K̂_{1,k-1}, K̂_{2,0},...,K̂_{n,k-1}
+        for (const auto *guardian : guardians) {
+            for (auto *commitment : guardian->getDataCommitments()) {
+                args.push_back(commitment);
+            }
+        }
+
+        // All communication public keys: κ_1,...,κ_n
+        for (const auto *guardian : guardians) {
+            args.push_back(guardian->getCommPublicKey());
+        }
+
+        return hash_elems_v21(hb, EG_DS_GUARDIAN_RECORD_HASH, args);
+    }
+
     unique_ptr<GuardianKeySet> GuardianKeySet::generate(uint64_t guardianIndex, uint64_t quorum)
     {
         // ── Vote polynomial ──────────────────────────────────────────────────

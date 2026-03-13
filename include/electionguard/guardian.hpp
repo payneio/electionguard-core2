@@ -223,6 +223,33 @@ namespace electionguard
         /// </summary>
         static std::unique_ptr<GuardianKeySet> generate(uint64_t guardianIndex, uint64_t quorum);
 
+        /// <summary>
+        /// Compute the joint vote public key K = ∏ K_i mod p.
+        /// </summary>
+        static std::unique_ptr<ElementModP>
+        computeJointVoteKey(std::vector<const GuardianKeySet *> guardians);
+
+        /// <summary>
+        /// Compute the joint data public key K̂ = ∏ K̂_i mod p.
+        /// </summary>
+        static std::unique_ptr<ElementModP>
+        computeJointDataKey(std::vector<const GuardianKeySet *> guardians);
+
+        /// <summary>
+        /// Compute the guardian record hash
+        /// H_G = H(H_B; 0x13, K, K̂, K_{1,0},…,K_{n,k-1},
+        ///                      K̂_{1,0},…,K̂_{n,k-1}, κ_1,…,κ_n).
+        ///
+        /// <param name="hb">H_B — election base hash (HMAC key).</param>
+        /// <param name="K">Joint vote public key.</param>
+        /// <param name="K_hat">Joint data public key.</param>
+        /// <param name="guardians">All guardian key sets in order.</param>
+        /// </summary>
+        static std::unique_ptr<ElementModQ>
+        computeGuardianRecordHash(const ElementModQ *hb, const ElementModP *K,
+                                  const ElementModP *K_hat,
+                                  std::vector<const GuardianKeySet *> guardians);
+
       private:
         class GuardianKeySetImpl; // forward-declare as nested class
         explicit GuardianKeySet(std::unique_ptr<GuardianKeySetImpl> pimpl);

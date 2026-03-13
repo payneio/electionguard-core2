@@ -108,3 +108,29 @@ TEST_CASE("v2.1 Share encryption: guardian i encrypts shares for guardian l")
         CiphertextElectionContext::computeParameterHash(3, quorum).get(),
         guardian2->getCommunicationPublicKey()));
 }
+
+TEST_CASE("v2.1 Joint keys and guardian record hash")
+{
+    uint64_t n = 3; uint64_t k = 2;
+    auto g1 = GuardianKeySet::generate(1, k);
+    auto g2 = GuardianKeySet::generate(2, k);
+    auto g3 = GuardianKeySet::generate(3, k);
+
+    // Joint vote key: K = product(K_i) mod p
+    auto K = GuardianKeySet::computeJointVoteKey({g1.get(), g2.get(), g3.get()});
+    REQUIRE(K != nullptr);
+
+    // Joint data key: K_hat = product(K_hat_i) mod p
+    auto K_hat = GuardianKeySet::computeJointDataKey({g1.get(), g2.get(), g3.get()});
+    REQUIRE(K_hat != nullptr);
+    CHECK((*K != *K_hat));
+
+    // H_G = H(H_B; 0x13, K, K_hat, all vote commitments, all data commitments, all comm keys)
+    auto hp = CiphertextElectionContext::computeParameterHash(n, k);
+    vector<uint8_t> manifest = {0x01};
+    auto hb = CiphertextElectionContext::computeBaseHash(hp.get(), manifest);
+
+    auto hg = GuardianKeySet::computeGuardianRecordHash(
+        hb.get(), K.get(), K_hat.get(), {g1.get(), g2.get(), g3.get()});
+    REQUIRE(hg != nullptr);
+}
