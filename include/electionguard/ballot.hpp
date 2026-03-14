@@ -833,6 +833,32 @@ namespace electionguard
         /// </summary>
         static std::unique_ptr<CiphertextBallot> fromMsgPack(std::vector<uint8_t> data);
 
+        // ── v2.1 fields ──────────────────────────────────────────────
+
+        /// <Summary>v2.1: Random 256-bit ballot identifier.</Summary>
+        ElementModQ *getBallotId() const;
+
+        /// <Summary>v2.1: Set the ballot identifier.</Summary>
+        void setBallotId(std::unique_ptr<ElementModQ> id);
+
+        /// <Summary>v2.1: Encrypted ballot nonce (signed hashed ElGamal with K_hat).</Summary>
+        HashedElGamalCiphertext *getNonceCiphertext() const;
+
+        /// <Summary>v2.1: Set the encrypted ballot nonce.</Summary>
+        void setNonceCiphertext(std::unique_ptr<HashedElGamalCiphertext> ct);
+
+        /// <Summary>v2.1: Chaining field (4-byte mode + 32-byte hash, 36 bytes total).</Summary>
+        std::vector<uint8_t> getChainingField() const;
+
+        /// <Summary>v2.1: Set the chaining field.</Summary>
+        void setChainingField(std::vector<uint8_t> field);
+
+        /// <Summary>v2.1: Selection encryption identifier H_I.</Summary>
+        ElementModQ *getSelectionEncryptionId() const;
+
+        /// <Summary>v2.1: Set the selection encryption identifier.</Summary>
+        void setSelectionEncryptionId(std::unique_ptr<ElementModQ> id);
+
       protected:
         static std::unique_ptr<ElementModQ>
         makeCryptoHash(const ElementModQ &extendedBaseHash,
