@@ -73,6 +73,28 @@ namespace electionguard
             const ElementModQ *selectionEncId,
             const std::vector<const ElementModQ *> &contestHashes,
             const std::vector<uint8_t> &chainingField);
+
+        // ── v2.1 chaining ───────────────────────────────────────────
+
+        /// v2.1 no-chain: B_C = 0x00000000 || H_DI
+        static std::vector<uint8_t> buildNoChainingField(const ElementModQ *deviceInfoHash);
+
+        /// v2.1 simple-chain init: B_{C,0} = 0x00000001 || H_DI
+        static std::vector<uint8_t> buildSimpleChainInitField(const ElementModQ *deviceInfoHash);
+
+        /// v2.1 simple-chain next: B_{C,j} = 0x00000001 || H_{j-1}
+        static std::vector<uint8_t> buildSimpleChainField(const ElementModQ *previousHash);
+
+        /// v2.1 chain init hash: H_0 = H(H_E; 0x29, B_{C,0})
+        static std::unique_ptr<ElementModQ> computeChainInitHash(
+            const ElementModQ *extendedHash,
+            const std::vector<uint8_t> &initField);
+
+        /// v2.1 chain closing: H_bar
+        static std::unique_ptr<ElementModQ> closeChain(
+            const ElementModQ *extendedHash,
+            const ElementModQ *lastHash,
+            const std::vector<uint8_t> &initField);
     };
 
 } // namespace electionguard
