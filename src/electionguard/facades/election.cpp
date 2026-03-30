@@ -423,4 +423,89 @@ eg_ciphertext_election_context_to_bson(eg_ciphertext_election_context_t *handle,
     }
 }
 
+// ── v2.1 additions ──────────────────────────────────────────────────────────
+
+eg_electionguard_status_t eg_ciphertext_election_context_get_ballot_data_public_key(
+  eg_ciphertext_election_context_t *handle, eg_element_mod_p_t **out_ballot_data_public_key_ref)
+{
+    const auto *pointer = AS_TYPE(CiphertextElectionContext, handle)->getBallotDataPublicKey();
+    *out_ballot_data_public_key_ref =
+      AS_TYPE(eg_element_mod_p_t, const_cast<ElementModP *>(pointer));
+    return ELECTIONGUARD_STATUS_SUCCESS;
+}
+
+eg_electionguard_status_t eg_ciphertext_election_context_make_v21(
+  uint64_t in_number_of_guardians, uint64_t in_quorum,
+  eg_element_mod_p_t *in_elgamal_public_key, eg_element_mod_p_t *in_ballot_data_public_key,
+  const uint8_t *in_manifest_bytes, uint64_t in_manifest_bytes_size,
+  eg_ciphertext_election_context_t **out_handle)
+{
+    try {
+        auto *kPtr = AS_TYPE(ElementModP, in_elgamal_public_key);
+        auto *khatPtr = AS_TYPE(ElementModP, in_ballot_data_public_key);
+        vector<uint8_t> manifestBytes(in_manifest_bytes,
+                                      in_manifest_bytes + in_manifest_bytes_size);
+
+        auto context =
+          CiphertextElectionContext::make(in_number_of_guardians, in_quorum, kPtr->clone(),
+                                          khatPtr->clone(), manifestBytes);
+
+        *out_handle = AS_TYPE(eg_ciphertext_election_context_t, context.release());
+        return ELECTIONGUARD_STATUS_SUCCESS;
+    } catch (const exception &e) {
+        Log::error(__func__, e);
+        return ELECTIONGUARD_STATUS_ERROR_BAD_ALLOC;
+    }
+}
+
+eg_electionguard_status_t eg_ciphertext_election_context_compute_parameter_hash(
+  uint64_t in_number_of_guardians, uint64_t in_quorum, eg_element_mod_q_t **out_parameter_hash)
+{
+    try {
+        auto result = CiphertextElectionContext::computeParameterHash(in_number_of_guardians,
+                                                                       in_quorum);
+        *out_parameter_hash = AS_TYPE(eg_element_mod_q_t, result.release());
+        return ELECTIONGUARD_STATUS_SUCCESS;
+    } catch (const exception &e) {
+        Log::error(__func__, e);
+        return ELECTIONGUARD_STATUS_ERROR_BAD_ALLOC;
+    }
+}
+
+eg_electionguard_status_t eg_ciphertext_election_context_compute_base_hash(
+  eg_element_mod_q_t *in_parameter_hash, const uint8_t *in_manifest_bytes,
+  uint64_t in_manifest_bytes_size, eg_element_mod_q_t **out_base_hash)
+{
+    try {
+        auto *hpPtr = AS_TYPE(ElementModQ, in_parameter_hash);
+        vector<uint8_t> manifestBytes(in_manifest_bytes,
+                                      in_manifest_bytes + in_manifest_bytes_size);
+
+        auto result = CiphertextElectionContext::computeBaseHash(hpPtr, manifestBytes);
+        *out_base_hash = AS_TYPE(eg_element_mod_q_t, result.release());
+        return ELECTIONGUARD_STATUS_SUCCESS;
+    } catch (const exception &e) {
+        Log::error(__func__, e);
+        return ELECTIONGUARD_STATUS_ERROR_BAD_ALLOC;
+    }
+}
+
+eg_electionguard_status_t eg_ciphertext_election_context_compute_extended_hash(
+  eg_element_mod_q_t *in_base_hash, eg_element_mod_p_t *in_elgamal_public_key,
+  eg_element_mod_p_t *in_ballot_data_public_key, eg_element_mod_q_t **out_extended_hash)
+{
+    try {
+        auto *hbPtr = AS_TYPE(ElementModQ, in_base_hash);
+        auto *kPtr = AS_TYPE(ElementModP, in_elgamal_public_key);
+        auto *khatPtr = AS_TYPE(ElementModP, in_ballot_data_public_key);
+
+        auto result = CiphertextElectionContext::computeExtendedHash(hbPtr, kPtr, khatPtr);
+        *out_extended_hash = AS_TYPE(eg_element_mod_q_t, result.release());
+        return ELECTIONGUARD_STATUS_SUCCESS;
+    } catch (const exception &e) {
+        Log::error(__func__, e);
+        return ELECTIONGUARD_STATUS_ERROR_BAD_ALLOC;
+    }
+}
+
 #pragma endregion

@@ -19,6 +19,7 @@ set(FACADES_electionguard
     ${PROJECT_SOURCE_DIR}/src/electionguard/facades/manifest.cpp
     ${PROJECT_SOURCE_DIR}/src/electionguard/facades/nonces.cpp
     ${PROJECT_SOURCE_DIR}/src/electionguard/facades/polynomial.cpp
+    ${PROJECT_SOURCE_DIR}/src/electionguard/facades/guardian.cpp
     ${PROJECT_SOURCE_DIR}/src/electionguard/facades/precompute_buffers.cpp
 )
 
@@ -65,6 +66,7 @@ set(INCLUDES_electionguard_h
     ${PROJECT_SOURCE_DIR}/include/electionguard/discrete_log.h
     ${PROJECT_SOURCE_DIR}/include/electionguard/election.h
     ${PROJECT_SOURCE_DIR}/include/electionguard/elgamal.h
+    ${PROJECT_SOURCE_DIR}/include/electionguard/guardian.h
     ${PROJECT_SOURCE_DIR}/include/electionguard/encrypt.h
     ${PROJECT_SOURCE_DIR}/include/electionguard/export.h
     ${PROJECT_SOURCE_DIR}/include/electionguard/exception_handler.h
@@ -88,6 +90,7 @@ set(INCLUDES_electionguard_hpp
     ${PROJECT_SOURCE_DIR}/include/electionguard/election_object_base.hpp
     ${PROJECT_SOURCE_DIR}/include/electionguard/election.hpp
     ${PROJECT_SOURCE_DIR}/include/electionguard/elgamal.hpp
+    ${PROJECT_SOURCE_DIR}/include/electionguard/guardian.hpp
     ${PROJECT_SOURCE_DIR}/include/electionguard/encrypt.hpp
     ${PROJECT_SOURCE_DIR}/include/electionguard/exception_handler.hpp
     ${PROJECT_SOURCE_DIR}/include/electionguard/group.hpp

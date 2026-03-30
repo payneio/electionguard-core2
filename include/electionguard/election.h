@@ -215,6 +215,72 @@ EG_API eg_electionguard_status_t eg_ciphertext_election_context_to_json(
 EG_API eg_electionguard_status_t eg_ciphertext_election_context_to_bson(
   eg_ciphertext_election_context_t *handle, uint8_t **out_data, uint64_t *out_size);
 
+// ── v2.1 dual-key additions ────────────────────────────────────────────────
+
+/**
+ * v2.1 getter for ballot data public key (K_hat).
+ *
+ * @param[out] out_ballot_data_public_key_ref Non-owning reference.  Not freed by caller.
+ */
+EG_API eg_electionguard_status_t eg_ciphertext_election_context_get_ballot_data_public_key(
+  eg_ciphertext_election_context_t *handle,
+  eg_element_mod_p_t **out_ballot_data_public_key_ref);
+
+/**
+ * v2.1 factory: build a context from raw manifest bytes + dual public keys.
+ * Uses the HMAC-based hash chain: H_P → H_B → H_E.
+ *
+ * @param[in]  in_number_of_guardians  n
+ * @param[in]  in_quorum               k
+ * @param[in]  in_elgamal_public_key   K  — joint vote public key (not consumed)
+ * @param[in]  in_ballot_data_public_key  K_hat — ballot data public key (not consumed)
+ * @param[in]  in_manifest_bytes       raw serialised manifest
+ * @param[in]  in_manifest_bytes_size  byte length of manifest
+ * @param[out] out_handle              caller owns; free with eg_ciphertext_election_context_free
+ */
+EG_API eg_electionguard_status_t eg_ciphertext_election_context_make_v21(
+  uint64_t in_number_of_guardians, uint64_t in_quorum,
+  eg_element_mod_p_t *in_elgamal_public_key,
+  eg_element_mod_p_t *in_ballot_data_public_key,
+  const uint8_t *in_manifest_bytes, uint64_t in_manifest_bytes_size,
+  eg_ciphertext_election_context_t **out_handle);
+
+/**
+ * v2.1 H_P = H(version; 0x00, p, q, g, n, k)
+ *
+ * @param[out] out_parameter_hash  Caller owns; free with eg_element_mod_q_free.
+ */
+EG_API eg_electionguard_status_t eg_ciphertext_election_context_compute_parameter_hash(
+  uint64_t in_number_of_guardians, uint64_t in_quorum,
+  eg_element_mod_q_t **out_parameter_hash);
+
+/**
+ * v2.1 H_B = H(H_P; 0x01, len(manifest), manifest)
+ *
+ * @param[in]  in_parameter_hash       H_P (not consumed)
+ * @param[in]  in_manifest_bytes       raw serialised manifest
+ * @param[in]  in_manifest_bytes_size  byte length of manifest
+ * @param[out] out_base_hash           Caller owns; free with eg_element_mod_q_free.
+ */
+EG_API eg_electionguard_status_t eg_ciphertext_election_context_compute_base_hash(
+  eg_element_mod_q_t *in_parameter_hash,
+  const uint8_t *in_manifest_bytes, uint64_t in_manifest_bytes_size,
+  eg_element_mod_q_t **out_base_hash);
+
+/**
+ * v2.1 H_E = H(H_B; 0x14, K, K_hat)
+ *
+ * @param[in]  in_base_hash             H_B (not consumed)
+ * @param[in]  in_elgamal_public_key    K   (not consumed)
+ * @param[in]  in_ballot_data_public_key K_hat (not consumed)
+ * @param[out] out_extended_hash        Caller owns; free with eg_element_mod_q_free.
+ */
+EG_API eg_electionguard_status_t eg_ciphertext_election_context_compute_extended_hash(
+  eg_element_mod_q_t *in_base_hash,
+  eg_element_mod_p_t *in_elgamal_public_key,
+  eg_element_mod_p_t *in_ballot_data_public_key,
+  eg_element_mod_q_t **out_extended_hash);
+
 #endif
 
 #ifdef __cplusplus
