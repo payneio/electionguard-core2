@@ -84,6 +84,31 @@ TEST_CASE("Assign ExtraData to CiphertextElectionContextand Serialize")
     CHECK(fromBson->getExtendedData().at("uri") == context->getExtendedData().at("uri"));
 }
 
+// ─── v2.1 generator tests ────────────────────────────────────────────────────
+
+TEST_CASE("v2.1 ElectionGenerator::getFakeContextV21 creates dual-key context")
+{
+    // Arrange
+    auto elGamalKeypair     = ElGamalKeyPair::fromSecret(TWO_MOD_Q());
+    auto ballotDataSecret   = rand_q();
+    auto ballotDataKeypair  = ElGamalKeyPair::fromSecret(*ballotDataSecret);
+    auto manifest           = ManifestGenerator::getJeffersonCountyManifest_Minimal();
+    auto internal           = make_unique<InternalManifest>(*manifest);
+
+    // Act
+    auto context = ElectionGenerator::getFakeContextV21(
+      *internal, *elGamalKeypair->getPublicKey(), *ballotDataKeypair->getPublicKey());
+
+    // Assert
+    REQUIRE(context != nullptr);
+    CHECK(context->getNumberOfGuardians() == 3UL);
+    CHECK(context->getQuorum() == 2UL);
+    CHECK(context->getElGamalPublicKey() != nullptr);
+    CHECK(context->getBallotDataPublicKey() != nullptr);
+    CHECK(context->getCryptoBaseHash() != nullptr);
+    CHECK(context->getCryptoExtendedBaseHash() != nullptr);
+}
+
 // ─── v2.1 base hash chain tests ─────────────────────────────────────────────
 
 TEST_CASE("v2.1 H_P includes n and k, uses version bytes as key")

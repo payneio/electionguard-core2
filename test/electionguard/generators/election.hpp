@@ -41,6 +41,13 @@ namespace electionguard::tools::generators
             return context;
         }
 
+        /// v2.1 context generator with K_hat (ballot-data public key).
+        /// Uses the HMAC-based hash chain: H_P → H_B(manifest bytes) → H_E(K, K_hat).
+        static unique_ptr<CiphertextElectionContext>
+        getFakeContextV21(const InternalManifest &manifest,
+                          const ElementModP &elGamalPublicKey,
+                          const ElementModP &ballotDataPublicKey);
+
         static unique_ptr<CiphertextElectionContext> getJsonContext()
         {
             string contextData =
