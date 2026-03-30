@@ -1,11 +1,13 @@
 #ifndef __ELECTIONGUARD_CPP_BALLOT_CODE_HPP_INCLUDED__
 #define __ELECTIONGUARD_CPP_BALLOT_CODE_HPP_INCLUDED__
 
+#include "elgamal.hpp"
 #include "export.h"
 #include "group.hpp"
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace electionguard
 {
@@ -47,6 +49,30 @@ namespace electionguard
         /// </summary>
         static std::unique_ptr<ElementModQ>
         getBallotCode(const ElementModQ &seed, uint64_t timestamp, const ElementModQ &ballotCode);
+
+        // ── v2.1 contest hash ────────────────────────────────────────
+
+        /// v2.1: chi_l = H(H_I; 0x28, l, alpha_1, beta_1, ..., alpha_n, beta_n, [contest_data])
+        static std::unique_ptr<ElementModQ> computeContestHash(
+            const ElementModQ *selectionEncId,
+            uint64_t contestIndex,
+            const std::vector<const ElGamalCiphertext *> &selections,
+            const HashedElGamalCiphertext *contestData);
+
+        // ── v2.1 device info hash ───────────────────────────────────
+
+        /// v2.1: H_DI = H(H_E; 0x2A, S_device)
+        static std::unique_ptr<ElementModQ> computeDeviceInfoHash(
+            const ElementModQ *extendedHash,
+            const std::string &deviceInfo);
+
+        // ── v2.1 confirmation code ──────────────────────────────────
+
+        /// v2.1: H_C = H(H_I; 0x29, chi_1, ..., chi_m, B_C)
+        static std::unique_ptr<ElementModQ> computeConfirmationCode(
+            const ElementModQ *selectionEncId,
+            const std::vector<const ElementModQ *> &contestHashes,
+            const std::vector<uint8_t> &chainingField);
     };
 
 } // namespace electionguard
