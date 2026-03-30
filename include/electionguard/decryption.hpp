@@ -41,6 +41,21 @@ namespace electionguard
             const ElementModP *a, const ElementModP *b,
             const ElementModP *M);
 
+        /// v2.1 contest data commitment hash: d_i = H(H_I; 0x32, ind_c, i, C_0, C_1, C_2, a_i, b_i, m_i, U)
+        static std::unique_ptr<ElementModQ> computeContestDataCommitmentHash(
+            const ElementModQ *selectionEncId,
+            uint64_t contestIndex, uint64_t guardianIndex,
+            const ElementModP *C0, const std::vector<uint8_t> &C1, const std::vector<uint8_t> &C2,
+            const ElementModP *a_i, const ElementModP *b_i, const ElementModP *m_i,
+            const std::vector<uint64_t> &availableGuardians);
+
+        /// v2.1 contest data decryption challenge: c = H_q(H_I; 0x33, ind_c, C_0, C_1, C_2, a, b, M)
+        static std::unique_ptr<ElementModQ> computeContestDataDecryptionChallenge(
+            const ElementModQ *selectionEncId,
+            uint64_t contestIndex,
+            const ElementModP *C0, const std::vector<uint8_t> &C1, const std::vector<uint8_t> &C2,
+            const ElementModP *a, const ElementModP *b, const ElementModP *M);
+
         /// v2.1 verification: check a = g^v * K^c, b = A^v * M^c, and challenge recomputation
         bool isValid(const ElGamalCiphertext &message, const ElementModP &K,
                      const ElementModP &M, const ElementModQ &extendedHash,

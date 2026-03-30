@@ -86,6 +86,42 @@ namespace electionguard
                                  const_cast<ElementModP *>(b), const_cast<ElementModP *>(M)});
     }
 
+    unique_ptr<ElementModQ> DecryptionProof::computeContestDataCommitmentHash(
+        const ElementModQ *selectionEncId,
+        uint64_t contestIndex, uint64_t guardianIndex,
+        const ElementModP *C0, const vector<uint8_t> &C1, const vector<uint8_t> &C2,
+        const ElementModP *a_i, const ElementModP *b_i, const ElementModP *m_i,
+        const vector<uint64_t> &availableGuardians)
+    {
+        vector<CryptoHashableType> args;
+        args.push_back(contestIndex);
+        args.push_back(guardianIndex);
+        args.push_back(const_cast<ElementModP *>(C0));
+        args.push_back(C1);
+        args.push_back(C2);
+        args.push_back(const_cast<ElementModP *>(a_i));
+        args.push_back(const_cast<ElementModP *>(b_i));
+        args.push_back(const_cast<ElementModP *>(m_i));
+        args.push_back(static_cast<uint64_t>(availableGuardians.size()));
+        for (auto idx : availableGuardians) {
+            args.push_back(idx);
+        }
+        return hash_elems_v21(selectionEncId, EG_DS_CONTEST_DECRYPT_COMMIT, args);
+    }
+
+    unique_ptr<ElementModQ> DecryptionProof::computeContestDataDecryptionChallenge(
+        const ElementModQ *selectionEncId,
+        uint64_t contestIndex,
+        const ElementModP *C0, const vector<uint8_t> &C1, const vector<uint8_t> &C2,
+        const ElementModP *a, const ElementModP *b, const ElementModP *M)
+    {
+        return hash_elems_v21_q(selectionEncId, EG_DS_CONTEST_DECRYPT_PROOF,
+                                {contestIndex,
+                                 const_cast<ElementModP *>(C0), C1, C2,
+                                 const_cast<ElementModP *>(a), const_cast<ElementModP *>(b),
+                                 const_cast<ElementModP *>(M)});
+    }
+
     bool DecryptionProof::isValid(const ElGamalCiphertext &message, const ElementModP &K,
                                   const ElementModP &M, const ElementModQ &extendedHash,
                                   uint64_t contestIndex, uint64_t selectionIndex) const
