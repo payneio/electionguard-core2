@@ -1,6 +1,7 @@
 ﻿using CommandLine;
 using ElectionGuard.CLI.Encrypt;
 using ElectionGuard.CLI.Generate;
+using ElectionGuard.CLI.KeyCeremony;
 using System.Reflection;
 using ElectionGuard.Converters;
 using Newtonsoft.Json;
@@ -39,6 +40,10 @@ class Program
                 break;
             case VerifyOptions v:
                 await VerifyCommand.Execute(v);
+                break;
+            // v2.1: guardian key ceremony (triple key pairs per guardian)
+            case KeyCeremonyOptions k:
+                await KeyCeremonyCommand.Execute(k);
                 break;
         }
     }
