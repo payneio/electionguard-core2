@@ -246,7 +246,9 @@ namespace electionguard
 
     /// <param name="a"> Zero or more elements of any of the accepted types.</param>
     /// <returns>A cryptographic hash of these elements, concatenated.</returns>
+    /// @deprecated Use hash_elems_v21() for spec v2.1 compliance (HMAC-SHA-256 based).
     /// </Summary>
+    [[deprecated("Use hash_elems_v21 for spec v2.1 compliance")]]
     EG_API std::unique_ptr<ElementModQ> hash_elems(const std::vector<CryptoHashableType> &a);
 
     /// <Summary>
@@ -257,7 +259,9 @@ namespace electionguard
 
     /// <param name="a"> Zero or more elements of any of the accepted types.</param>
     /// <returns>A cryptographic hash of these elements, concatenated.</returns>
+    /// @deprecated Use hash_elems_v21() for spec v2.1 compliance (HMAC-SHA-256 based).
     /// </Summary>
+    [[deprecated("Use hash_elems_v21 for spec v2.1 compliance")]]
     EG_API std::unique_ptr<ElementModQ> hash_elems(CryptoHashableType a);
 
     // ─────────────────────── v2.1 HMAC-SHA-256 primitives ──────────────────────
