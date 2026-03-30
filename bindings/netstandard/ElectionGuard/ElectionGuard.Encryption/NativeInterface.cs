@@ -2336,6 +2336,100 @@ namespace ElectionGuard
                 CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
             internal static extern Status ToBson(
                 CiphertextElectionContextHandle handle, out uint* data, out ulong size);
+
+            // v2.1 make with ballot data public key and raw manifest bytes
+            [DllImport(DllName, EntryPoint = "eg_ciphertext_election_context_make_v21",
+                CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
+            internal static extern Status MakeV21(
+                ulong numberOfGuardians,
+                ulong quorum,
+                ElementModP.ElementModPHandle elgamalPublicKey,
+                ElementModP.ElementModPHandle ballotDataPublicKey,
+                [MarshalAs(UnmanagedType.LPArray)] byte[] manifestBytes,
+                ulong manifestBytesSize,
+                out CiphertextElectionContextHandle handle);
+
+            // v2.1 getter for ballot data public key (K_hat)
+            [DllImport(DllName, EntryPoint = "eg_ciphertext_election_context_get_ballot_data_public_key",
+                CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
+            internal static extern Status GetBallotDataPublicKey(
+                CiphertextElectionContextHandle handle,
+                out ElementModP.ElementModPHandle value);
+
+            // v2.1 hash chain building blocks
+            [DllImport(DllName, EntryPoint = "eg_ciphertext_election_context_compute_parameter_hash",
+                CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
+            internal static extern Status ComputeParameterHash(
+                ulong numberOfGuardians,
+                ulong quorum,
+                out ElementModQ.ElementModQHandle parameterHash);
+
+            [DllImport(DllName, EntryPoint = "eg_ciphertext_election_context_compute_base_hash",
+                CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
+            internal static extern Status ComputeBaseHash(
+                ElementModQ.ElementModQHandle parameterHash,
+                [MarshalAs(UnmanagedType.LPArray)] byte[] manifestBytes,
+                ulong manifestBytesSize,
+                out ElementModQ.ElementModQHandle baseHash);
+
+            [DllImport(DllName, EntryPoint = "eg_ciphertext_election_context_compute_extended_hash",
+                CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
+            internal static extern Status ComputeExtendedHash(
+                ElementModQ.ElementModQHandle baseHash,
+                ElementModP.ElementModPHandle elgamalPublicKey,
+                ElementModP.ElementModPHandle ballotDataPublicKey,
+                out ElementModQ.ElementModQHandle extendedHash);
+        }
+
+        #endregion
+
+        #region GuardianKeySet
+
+        internal static class GuardianKeySet
+        {
+            internal struct GuardianKeySetType { };
+
+            internal class GuardianKeySetHandle
+                : ElectionGuardSafeHandle<GuardianKeySetType>
+            {
+                protected override bool Free()
+                {
+                    if (IsClosed) return true;
+                    var status = GuardianKeySet.Free(TypedPtr);
+                    if (status != Status.ELECTIONGUARD_STATUS_SUCCESS)
+                        throw new ElectionGuardException($"GuardianKeySet Error Free: {status}", status);
+                    return true;
+                }
+            }
+
+            [DllImport(DllName, EntryPoint = "eg_guardian_key_set_generate",
+                CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
+            internal static extern Status Generate(
+                ulong guardianIndex,
+                ulong quorum,
+                out GuardianKeySetHandle handle);
+
+            [DllImport(DllName, EntryPoint = "eg_guardian_key_set_free",
+                CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
+            internal static extern unsafe Status Free(GuardianKeySetType* handle);
+
+            [DllImport(DllName, EntryPoint = "eg_guardian_key_set_get_vote_public_key",
+                CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
+            internal static extern Status GetVotePublicKey(
+                GuardianKeySetHandle handle,
+                out ElementModP.ElementModPHandle value);
+
+            [DllImport(DllName, EntryPoint = "eg_guardian_key_set_get_data_public_key",
+                CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
+            internal static extern Status GetDataPublicKey(
+                GuardianKeySetHandle handle,
+                out ElementModP.ElementModPHandle value);
+
+            [DllImport(DllName, EntryPoint = "eg_guardian_key_set_get_communication_public_key",
+                CallingConvention = CallingConvention.Cdecl, SetLastError = true)]
+            internal static extern Status GetCommunicationPublicKey(
+                GuardianKeySetHandle handle,
+                out ElementModP.ElementModPHandle value);
         }
 
         #endregion

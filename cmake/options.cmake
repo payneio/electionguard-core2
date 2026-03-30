@@ -6,7 +6,7 @@ option(EXPORT_INTERNALS "Export Internal Headers (useful for testing, do not use
 option(USE_32BIT_MATH "Use the 32 bit optimized math impl" OFF)
 option(USE_TEST_PRIMES "Use the smaller test primes (useful for testing, do not use in prod)" OFF)
 option(OPTION_ENABLE_TESTS "Enable support for testing private headers" OFF)
-option(TEST_SPEC_VERSION "Use this spec version for tests" "0.95.0")
+option(TEST_SPEC_VERSION "Use this spec version for tests" "2.1.0")
 option(TEST_USE_SAMPLE "the sample to use, full, hamilton-general, minimal, small" "hamilton-general")
 option(CODE_COVERAGE "Use code coverage" OFF)
 option(OPTION_GENERATE_DOCS "Generate documentation" OFF)

@@ -1,5 +1,6 @@
 #include "electionguard/nonces.hpp"
 
+#include "electionguard/constants.h"
 #include "electionguard/hash.hpp"
 #include "log.hpp"
 #include "variant_cast.hpp"
@@ -77,4 +78,35 @@ namespace electionguard
     }
 
     unique_ptr<ElementModQ> Nonces::next() const { return pimpl->next(); }
+
+    // ─── v2.1 free functions ─────────────────────────────────────────────────
+
+    unique_ptr<ElementModQ>
+    compute_selection_encryption_id(const ElementModQ *extendedHash,
+                                    const ElementModQ *ballotId)
+    {
+        return hash_elems_v21(extendedHash, EG_DS_SELECTION_ENC_ID,
+                              {const_cast<ElementModQ *>(ballotId)});
+    }
+
+    unique_ptr<ElementModQ>
+    derive_selection_nonce(const ElementModQ *selectionEncId,
+                           uint64_t contestIndex, uint64_t selectionIndex,
+                           const ElementModQ *ballotNonce)
+    {
+        return hash_elems_v21_q(selectionEncId, EG_DS_ENCRYPTION_NONCE,
+                                {contestIndex, selectionIndex,
+                                 const_cast<ElementModQ *>(ballotNonce)});
+    }
+
+    unique_ptr<ElementModQ>
+    derive_contest_data_nonce(const ElementModQ *selectionEncId,
+                               uint64_t contestIndex,
+                               const ElementModQ *ballotNonce)
+    {
+        return hash_elems_v21_q(selectionEncId, EG_DS_CONTEST_DATA_NONCE,
+                                {contestIndex,
+                                 const_cast<ElementModQ *>(ballotNonce)});
+    }
+
 } // namespace electionguard

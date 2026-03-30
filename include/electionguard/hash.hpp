@@ -246,7 +246,9 @@ namespace electionguard
 
     /// <param name="a"> Zero or more elements of any of the accepted types.</param>
     /// <returns>A cryptographic hash of these elements, concatenated.</returns>
+    /// @deprecated Use hash_elems_v21() for spec v2.1 compliance (HMAC-SHA-256 based).
     /// </Summary>
+    [[deprecated("Use hash_elems_v21 for spec v2.1 compliance")]]
     EG_API std::unique_ptr<ElementModQ> hash_elems(const std::vector<CryptoHashableType> &a);
 
     /// <Summary>
@@ -257,8 +259,52 @@ namespace electionguard
 
     /// <param name="a"> Zero or more elements of any of the accepted types.</param>
     /// <returns>A cryptographic hash of these elements, concatenated.</returns>
+    /// @deprecated Use hash_elems_v21() for spec v2.1 compliance (HMAC-SHA-256 based).
     /// </Summary>
+    [[deprecated("Use hash_elems_v21 for spec v2.1 compliance")]]
     EG_API std::unique_ptr<ElementModQ> hash_elems(CryptoHashableType a);
+
+    // ─────────────────────── v2.1 HMAC-SHA-256 primitives ──────────────────────
+
+    /// <Summary>
+    /// v2.1 H(B_0, B_1) = HMAC-SHA-256(B_0, B_1).
+    /// B_0 is the 32-byte HMAC key; B_1 is constructed as:
+    ///   domainSeparator || serialize(args[0]) || serialize(args[1]) || ...
+    ///
+    /// Serialisation rules (big-endian binary):
+    ///   ElementModP     -> 512 bytes
+    ///   ElementModQ     -> 32 bytes
+    ///   uint64_t        -> 4 bytes (low 32 bits)
+    ///   string          -> raw UTF-8 bytes
+    ///   vector<uint8_t> -> raw bytes
+    ///   nullptr         -> zero bytes (skipped)
+    ///   CryptoHashable* -> its crypto_hash() result serialised as 32 bytes
+    ///   vector<Elem*>   -> each element serialised in sequence
+    ///
+    /// Returns the raw 32-byte HMAC result wrapped in an unchecked ElementModQ.
+    /// Use hash_elems_v21_q() when a result guaranteed to be in [0, Q) is needed.
+    /// </Summary>
+    EG_API std::unique_ptr<ElementModQ>
+    hash_elems_v21(const uint8_t keyBytes[32], uint8_t domainSeparator,
+                   const std::vector<CryptoHashableType> &args);
+
+    /// <Summary>
+    /// v2.1 H(B_0, B_1) where B_0 is derived from an ElementModQ key (32 bytes).
+    /// See the uint8_t[] overload for full documentation.
+    /// </Summary>
+    EG_API std::unique_ptr<ElementModQ>
+    hash_elems_v21(const ElementModQ *key, uint8_t domainSeparator,
+                   const std::vector<CryptoHashableType> &args);
+
+    /// <Summary>
+    /// v2.1 H_q(B_0, B_1) = H(B_0, B_1) mod q.
+    /// Identical to the ElementModQ-key overload of hash_elems_v21 but the
+    /// result is additionally reduced modulo Q so it is in [0, Q).
+    /// </Summary>
+    EG_API std::unique_ptr<ElementModQ>
+    hash_elems_v21_q(const ElementModQ *key, uint8_t domainSeparator,
+                     const std::vector<CryptoHashableType> &args);
+
 } // namespace electionguard
 
 #endif /* __ELECTIONGUARD_CPP_HASH_HPP_INCLUDED__ */

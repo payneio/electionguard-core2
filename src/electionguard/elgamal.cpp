@@ -1,9 +1,11 @@
 #include "electionguard/elgamal.hpp"
 
 #include "../../libs/hacl/Lib.hpp"
+#include "electionguard/constants.h"
 #include "electionguard/discrete_log.hpp"
 #include "electionguard/hash.hpp"
 #include "electionguard/hmac.hpp"
+#include "electionguard/kdf.hpp"
 #include "electionguard/precompute_buffers.hpp"
 #include "facades/bignum4096.hpp"
 #include "krml/lowstar_endianness.h"
@@ -13,6 +15,7 @@
 #include <electionguard/hash.hpp>
 #include <memory>
 #include <stdexcept>
+#include <string>
 
 using electionguard::HMAC;
 using electionguard::facades::Bignum4096;
@@ -293,6 +296,29 @@ namespace electionguard
     {
         auto result = mul_mod_p(*pimpl->data, product);
         return DiscreteLog::getAsync(*result, base);
+    }
+
+    unique_ptr<ElGamalCiphertext>
+    ElGamalCiphertext::weightedAccumulate(const vector<const ElGamalCiphertext *> &ciphertexts,
+                                          const vector<uint64_t> &weights)
+    {
+        if (ciphertexts.size() != weights.size() || ciphertexts.empty()) {
+            throw invalid_argument("ciphertexts and weights must be non-empty and same size");
+        }
+
+        // Start with identity: (1, 1)
+        auto A = ONE_MOD_P().clone();
+        auto B = ONE_MOD_P().clone();
+
+        for (size_t i = 0; i < ciphertexts.size(); ++i) {
+            auto w = ElementModQ::fromUint64(weights[i], true);
+            auto alpha_w = pow_mod_p(*ciphertexts[i]->getPad(), *w);
+            auto beta_w = pow_mod_p(*ciphertexts[i]->getData(), *w);
+            A = mul_mod_p(*A, *alpha_w);
+            B = mul_mod_p(*B, *beta_w);
+        }
+
+        return make_unique<ElGamalCiphertext>(move(A), move(B));
     }
 
 #pragma endregion
@@ -624,6 +650,279 @@ namespace electionguard
     unique_ptr<HashedElGamalCiphertext> HashedElGamalCiphertext::clone() const
     {
         return make_unique<HashedElGamalCiphertext>(pimpl->pad->clone(), pimpl->data, pimpl->mac);
+    }
+
+    unique_ptr<HashedElGamalCiphertext>
+    HashedElGamalCiphertext::encryptBallotNonce(const ElementModQ *ballotNonce,
+                                                const ElementModP *ballotDataKey,
+                                                const ElementModQ *selectionEncId)
+    {
+        // 1. Random xi_hat_B; alpha_B = g^xi_hat_B, beta_B = K_hat^xi_hat_B
+        auto xi_hat = rand_q();
+        auto alpha = g_pow_p(*xi_hat);
+        auto beta = pow_mod_p(*ballotDataKey, *xi_hat);
+
+        // 2. h = H(H_I; 0x22, alpha_B, beta_B) — encryption key seed
+        auto h = hash_elems_v21(selectionEncId, EG_DS_BALLOT_NONCE_ENC_KEY,
+                                {alpha.get(), beta.get()});
+        auto h_bytes = h->toBytes();
+        if (h_bytes.size() < 32) {
+            h_bytes.insert(h_bytes.begin(), 32 - h_bytes.size(), 0x00);
+        }
+
+        // 3. KDF: derive 1 key
+        const std::string ctx_label("ballot_nonce_encrypt");
+        std::vector<uint8_t> context(ctx_label.begin(), ctx_label.end());
+        auto keys = KDF::derive(h_bytes, "ballot_nonce", context, 1);
+        const auto &k1 = keys[0];
+
+        // 4. XOR encrypt: C_1 = bytes(xi_B, 32) XOR k_1
+        auto nonce_bytes = ballotNonce->toBytes();
+        if (nonce_bytes.size() < 32) {
+            nonce_bytes.insert(nonce_bytes.begin(), 32 - nonce_bytes.size(), 0x00);
+        } else if (nonce_bytes.size() > 32) {
+            nonce_bytes.erase(nonce_bytes.begin(),
+                              nonce_bytes.begin() + (nonce_bytes.size() - 32));
+        }
+
+        vector<uint8_t> c1(32);
+        for (size_t i = 0; i < 32; ++i) {
+            c1[i] = nonce_bytes[i] ^ k1[i];
+        }
+
+        // 5. Schnorr proof: prove knowledge of xi_hat_B
+        auto u = rand_q();
+        auto h_commit = g_pow_p(*u); // g^u_B
+
+        // c_B = H_q(H_I; 0x23, g^u_B, alpha_B, C_1)
+        auto c = hash_elems_v21_q(selectionEncId, EG_DS_BALLOT_NONCE_ENC_PROOF,
+                                  {h_commit.get(), alpha.get(), c1});
+        auto v = a_minus_bc_mod_q(*u, *c, *xi_hat);
+
+        // Encode proof as: challenge (32 bytes) || response (32 bytes) = 64 bytes
+        auto c_bytes = c->toBytes();
+        auto v_bytes = v->toBytes();
+        if (c_bytes.size() < 32) {
+            c_bytes.insert(c_bytes.begin(), 32 - c_bytes.size(), 0x00);
+        }
+        if (v_bytes.size() < 32) {
+            v_bytes.insert(v_bytes.begin(), 32 - v_bytes.size(), 0x00);
+        }
+
+        vector<uint8_t> proof;
+        proof.insert(proof.end(), c_bytes.begin(), c_bytes.end());
+        proof.insert(proof.end(), v_bytes.begin(), v_bytes.end());
+
+        return make_unique<HashedElGamalCiphertext>(move(alpha), move(c1), move(proof));
+    }
+
+    unique_ptr<ElementModQ>
+    HashedElGamalCiphertext::decryptBallotNonce(const ElementModQ *secretKey,
+                                                const ElementModQ *selectionEncId) const
+    {
+        // Recompute beta = alpha^secretKey (DH property: equals K_hat^xi_hat)
+        auto beta = pow_mod_p(*getPad(), *secretKey);
+
+        // h = H(H_I; 0x22, alpha, beta)
+        auto h = hash_elems_v21(selectionEncId, EG_DS_BALLOT_NONCE_ENC_KEY,
+                                {const_cast<ElementModP *>(getPad()), beta.get()});
+        auto h_bytes = h->toBytes();
+        if (h_bytes.size() < 32) {
+            h_bytes.insert(h_bytes.begin(), 32 - h_bytes.size(), 0x00);
+        }
+
+        // KDF: derive 1 key
+        const std::string ctx_label("ballot_nonce_encrypt");
+        std::vector<uint8_t> context(ctx_label.begin(), ctx_label.end());
+        auto keys = KDF::derive(h_bytes, "ballot_nonce", context, 1);
+        const auto &k1 = keys[0];
+
+        // XOR decrypt
+        auto data = getData();
+        vector<uint8_t> nonce_bytes(32);
+        for (size_t i = 0; i < 32; ++i) {
+            nonce_bytes[i] = data[i] ^ k1[i];
+        }
+
+        return bytes_to_q(nonce_bytes, true);
+    }
+
+    bool HashedElGamalCiphertext::isNonceProofValid(const ElementModP *ballotDataKey,
+                                                    const ElementModQ *selectionEncId) const
+    {
+        auto proof = getMac(); // 64 bytes: challenge || response
+        if (proof.size() != 64) {
+            return false;
+        }
+
+        vector<uint8_t> c_bytes(proof.begin(), proof.begin() + 32);
+        vector<uint8_t> v_bytes(proof.begin() + 32, proof.end());
+
+        auto c = bytes_to_q(c_bytes, true);
+        auto v = bytes_to_q(v_bytes, true);
+
+        // Recompute h' = g^v * alpha^c
+        auto gv = g_pow_p(*v);
+        auto alphac = pow_mod_p(*getPad(), *c);
+        auto h_prime = mul_mod_p(*gv, *alphac);
+
+        // c' = H_q(H_I; 0x23, h', alpha, C_1)
+        auto data = getData();
+        auto c_prime =
+          hash_elems_v21_q(selectionEncId, EG_DS_BALLOT_NONCE_ENC_PROOF,
+                           {h_prime.get(), const_cast<ElementModP *>(getPad()), data});
+
+        return *c_prime == *c;
+    }
+
+    unique_ptr<HashedElGamalCiphertext>
+    HashedElGamalCiphertext::encryptContestData(const vector<uint8_t> &contestData,
+                                                const ElementModP *ballotDataKey,
+                                                const ElementModQ *selectionEncId,
+                                                uint64_t contestIndex,
+                                                const ElementModQ *ballotNonce)
+    {
+        if (contestData.empty() || (contestData.size() % 32) != 0) {
+            throw invalid_argument("encryptContestData: data must be a non-empty multiple of 32 bytes");
+        }
+        uint32_t number_of_blocks = contestData.size() / 32;
+
+        // Step 1: xi = H_q(H_I; 0x25, ind_c, xi_B)
+        auto xi = hash_elems_v21_q(selectionEncId, EG_DS_CONTEST_DATA_NONCE,
+                                   {contestIndex,
+                                    const_cast<ElementModQ *>(ballotNonce)});
+
+        // Step 2: alpha = g^xi, beta = K_hat^xi
+        auto alpha = g_pow_p(*xi);
+        auto beta = pow_mod_p(*ballotDataKey, *xi);
+
+        // Step 3: h = H(H_I; 0x26, ind_c, alpha, beta)
+        auto h = hash_elems_v21(selectionEncId, EG_DS_CONTEST_DATA_ENC_KEY,
+                                {contestIndex, alpha.get(), beta.get()});
+        auto h_bytes = h->toBytes();
+        if (h_bytes.size() < 32) {
+            h_bytes.insert(h_bytes.begin(), 32 - h_bytes.size(), 0x00);
+        }
+
+        // Step 4: KDF — context = "contest_data" || be32(ind_c)
+        const std::string ctx_str("contest_data");
+        std::vector<uint8_t> kdf_context(ctx_str.begin(), ctx_str.end());
+        kdf_context.push_back(static_cast<uint8_t>((contestIndex >> 24) & 0xFF));
+        kdf_context.push_back(static_cast<uint8_t>((contestIndex >> 16) & 0xFF));
+        kdf_context.push_back(static_cast<uint8_t>((contestIndex >> 8)  & 0xFF));
+        kdf_context.push_back(static_cast<uint8_t>( contestIndex        & 0xFF));
+        auto keys = KDF::derive(h_bytes, "data_enc_keys", kdf_context, number_of_blocks);
+
+        // Step 5: XOR-encrypt each 32-byte block
+        vector<uint8_t> c1;
+        c1.reserve(contestData.size());
+        for (uint32_t i = 0; i < number_of_blocks; ++i) {
+            const auto &ki = keys[i];
+            for (size_t j = 0; j < 32; ++j) {
+                c1.push_back(contestData[i * 32 + j] ^ ki[j]);
+            }
+        }
+
+        // Step 6: Schnorr proof — prove knowledge of xi
+        auto u = rand_q();
+        auto commit = g_pow_p(*u); // g^u
+
+        // c = H_q(H_I; 0x27, ind_c, g^u, alpha, C_1)
+        auto c = hash_elems_v21_q(selectionEncId, EG_DS_CONTEST_DATA_ENC_PROOF,
+                                  {contestIndex, commit.get(), alpha.get(), c1});
+        auto v = a_minus_bc_mod_q(*u, *c, *xi);
+
+        // Encode proof as challenge(32) || response(32) = 64 bytes
+        auto c_bytes = c->toBytes();
+        auto v_bytes = v->toBytes();
+        if (c_bytes.size() < 32) {
+            c_bytes.insert(c_bytes.begin(), 32 - c_bytes.size(), 0x00);
+        }
+        if (v_bytes.size() < 32) {
+            v_bytes.insert(v_bytes.begin(), 32 - v_bytes.size(), 0x00);
+        }
+        vector<uint8_t> proof;
+        proof.insert(proof.end(), c_bytes.begin(), c_bytes.end());
+        proof.insert(proof.end(), v_bytes.begin(), v_bytes.end());
+
+        return make_unique<HashedElGamalCiphertext>(move(alpha), move(c1), move(proof));
+    }
+
+    vector<uint8_t>
+    HashedElGamalCiphertext::decryptContestData(const ElementModQ *secretKey,
+                                                const ElementModQ *selectionEncId,
+                                                uint64_t contestIndex) const
+    {
+        auto data = getData();
+        if (data.empty() || (data.size() % 32) != 0) {
+            throw invalid_argument("decryptContestData: ciphertext must be a non-empty multiple of 32 bytes");
+        }
+        uint32_t number_of_blocks = data.size() / 32;
+
+        // Step 1: beta = alpha^secretKey
+        auto beta = pow_mod_p(*getPad(), *secretKey);
+
+        // Step 2: h = H(H_I; 0x26, ind_c, alpha, beta)
+        auto h = hash_elems_v21(selectionEncId, EG_DS_CONTEST_DATA_ENC_KEY,
+                                {contestIndex,
+                                 const_cast<ElementModP *>(getPad()),
+                                 beta.get()});
+        auto h_bytes = h->toBytes();
+        if (h_bytes.size() < 32) {
+            h_bytes.insert(h_bytes.begin(), 32 - h_bytes.size(), 0x00);
+        }
+
+        // Step 3: KDF — same params as encrypt
+        const std::string ctx_str("contest_data");
+        std::vector<uint8_t> kdf_context(ctx_str.begin(), ctx_str.end());
+        kdf_context.push_back(static_cast<uint8_t>((contestIndex >> 24) & 0xFF));
+        kdf_context.push_back(static_cast<uint8_t>((contestIndex >> 16) & 0xFF));
+        kdf_context.push_back(static_cast<uint8_t>((contestIndex >> 8)  & 0xFF));
+        kdf_context.push_back(static_cast<uint8_t>( contestIndex        & 0xFF));
+        auto keys = KDF::derive(h_bytes, "data_enc_keys", kdf_context, number_of_blocks);
+
+        // Step 4: XOR-decrypt each 32-byte block
+        vector<uint8_t> plaintext;
+        plaintext.reserve(data.size());
+        for (uint32_t i = 0; i < number_of_blocks; ++i) {
+            const auto &ki = keys[i];
+            for (size_t j = 0; j < 32; ++j) {
+                plaintext.push_back(data[i * 32 + j] ^ ki[j]);
+            }
+        }
+
+        return plaintext;
+    }
+
+    bool HashedElGamalCiphertext::isContestDataProofValid(const ElementModP *ballotDataKey,
+                                                          const ElementModQ *selectionEncId,
+                                                          uint64_t contestIndex) const
+    {
+        auto proof = getMac(); // 64 bytes: challenge || response
+        if (proof.size() != 64) {
+            return false;
+        }
+
+        vector<uint8_t> c_bytes(proof.begin(), proof.begin() + 32);
+        vector<uint8_t> v_bytes(proof.begin() + 32, proof.end());
+
+        auto c = bytes_to_q(c_bytes, true);
+        auto v = bytes_to_q(v_bytes, true);
+
+        // h' = g^v * alpha^c
+        auto gv     = g_pow_p(*v);
+        auto alphac = pow_mod_p(*getPad(), *c);
+        auto h_prime = mul_mod_p(*gv, *alphac);
+
+        // c' = H_q(H_I; 0x27, ind_c, h', alpha, C_1)
+        auto data = getData();
+        auto c_prime =
+          hash_elems_v21_q(selectionEncId, EG_DS_CONTEST_DATA_ENC_PROOF,
+                           {contestIndex, h_prime.get(),
+                            const_cast<ElementModP *>(getPad()),
+                            data});
+
+        return *c_prime == *c;
     }
 
 #pragma endregion // HashedElGamalCiphertext

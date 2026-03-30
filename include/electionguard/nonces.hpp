@@ -33,6 +33,24 @@ namespace electionguard
         struct Impl;
         std::unique_ptr<Impl> pimpl;
     };
+
+    /// v2.1: H_I = H(H_E; 0x20, id_B) — selection encryption identifier
+    EG_API std::unique_ptr<ElementModQ>
+    compute_selection_encryption_id(const ElementModQ *extendedHash,
+                                    const ElementModQ *ballotId);
+
+    /// v2.1: xi_{i,j} = H_q(H_I; 0x21, i, j, xi_B) — per-selection nonce
+    EG_API std::unique_ptr<ElementModQ>
+    derive_selection_nonce(const ElementModQ *selectionEncId,
+                           uint64_t contestIndex, uint64_t selectionIndex,
+                           const ElementModQ *ballotNonce);
+
+    /// v2.1: xi = H_q(H_I; 0x25, ind_c, xi_B) — contest data nonce
+    EG_API std::unique_ptr<ElementModQ>
+    derive_contest_data_nonce(const ElementModQ *selectionEncId,
+                               uint64_t contestIndex,
+                               const ElementModQ *ballotNonce);
+
 } // namespace electionguard
 
 #endif /* __ELECTIONGUARD_CPP_NONCES_HPP_INCLUDED__ */

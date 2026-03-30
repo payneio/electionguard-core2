@@ -232,6 +232,11 @@ namespace electionguard
         /// </Summary>
         std::unique_ptr<ElGamalCiphertext> clone() const;
 
+        /// v2.1: Weighted accumulate: (A,B) = product(alpha_j^W_j, beta_j^W_j) mod p
+        static std::unique_ptr<ElGamalCiphertext>
+        weightedAccumulate(const std::vector<const ElGamalCiphertext *> &ciphertexts,
+                           const std::vector<uint64_t> &weights);
+
       protected:
         /// <Summary>
         /// Decrypts an ElGamal ciphertext with a "known product" (the blinding factor used in the encryption).
@@ -417,6 +422,88 @@ namespace electionguard
         /// Clone the value by making a deep copy.
         /// </Summary>
         std::unique_ptr<HashedElGamalCiphertext> clone() const;
+
+        /// <summary>
+        /// v2.1 ballot nonce encryption: signed hashed ElGamal with KDF.
+        ///
+        /// 1. Random xi_hat_B; (alpha_B, beta_B) = (g^xi_hat_B, K_hat^xi_hat_B)
+        /// 2. h = H(H_I; 0x22, alpha_B, beta_B)
+        /// 3. KDF: label "ballot_nonce", context "ballot_nonce_encrypt", derive 1 key
+        /// 4. C_1 = bytes(xi_B, 32) XOR k_1
+        /// 5. Schnorr proof: c_B = H_q(H_I; 0x23, g^u_B, C_0, C_1)
+        ///
+        /// <param name="ballotNonce">xi_B — the ballot nonce to encrypt.</param>
+        /// <param name="ballotDataKey">K_hat — the joint data public key.</param>
+        /// <param name="selectionEncId">H_I — the selection encryption identifier.</param>
+        /// <returns>HashedElGamalCiphertext where pad=alpha_B, data=C_1, mac=proof bytes.</returns>
+        /// </summary>
+        static std::unique_ptr<HashedElGamalCiphertext>
+        encryptBallotNonce(const ElementModQ *ballotNonce,
+                           const ElementModP *ballotDataKey,
+                           const ElementModQ *selectionEncId);
+
+        /// <summary>
+        /// v2.1 ballot nonce decryption: reverses encryptBallotNonce.
+        ///
+        /// Recomputes beta = alpha^secretKey, derives the same KDF key,
+        /// and XOR-decrypts C_1 to recover xi_B.
+        ///
+        /// <param name="secretKey">The secret key corresponding to K_hat.</param>
+        /// <param name="selectionEncId">H_I — must match the value used during encryption.</param>
+        /// <returns>The decrypted ballot nonce xi_B.</returns>
+        /// </summary>
+        std::unique_ptr<ElementModQ>
+        decryptBallotNonce(const ElementModQ *secretKey,
+                           const ElementModQ *selectionEncId) const;
+
+        /// <summary>
+        /// Verify the Schnorr proof that the encryptor knew xi_hat_B.
+        ///
+        /// <param name="ballotDataKey">K_hat — the joint data public key.</param>
+        /// <param name="selectionEncId">H_I — the selection encryption identifier.</param>
+        /// <returns>true iff the proof is valid.</returns>
+        /// </summary>
+        bool isNonceProofValid(const ElementModP *ballotDataKey,
+                               const ElementModQ *selectionEncId) const;
+
+        /// <summary>
+        /// v2.1 contest data encryption with K_hat via hashed ElGamal + KDF.
+        ///
+        /// 1. Nonce: xi = H_q(H_I; 0x25, ind_c, xi_B)
+        /// 2. DH pair: (alpha, beta) = (g^xi, K_hat^xi)
+        /// 3. Secret key: h = H(H_I; 0x26, ind_c, alpha, beta)
+        /// 4. KDF: label "data_enc_keys", context "contest_data" || be32(ind_c), derive b keys
+        /// 5. Ciphertext: C_0 = alpha, C_1 = D_1 XOR k_1 || ... || D_b XOR k_b
+        /// 6. Schnorr proof: c = H_q(H_I; 0x27, ind_c, g^u, C_0, C_1)
+        ///
+        /// <param name="contestData">The plaintext data to encrypt (must be multiple of 32 bytes).</param>
+        /// <param name="ballotDataKey">K_hat — the joint data public key.</param>
+        /// <param name="selectionEncId">H_I — the selection encryption identifier.</param>
+        /// <param name="contestIndex">ind_c — the contest index.</param>
+        /// <param name="ballotNonce">xi_B — the ballot nonce.</param>
+        /// <returns>HashedElGamalCiphertext where pad=alpha, data=ciphertext, mac=proof.</returns>
+        /// </summary>
+        static std::unique_ptr<HashedElGamalCiphertext>
+        encryptContestData(const std::vector<uint8_t> &contestData,
+                           const ElementModP *ballotDataKey,
+                           const ElementModQ *selectionEncId,
+                           uint64_t contestIndex,
+                           const ElementModQ *ballotNonce);
+
+        /// <summary>
+        /// v2.1 contest data decryption: reverses encryptContestData.
+        /// </summary>
+        std::vector<uint8_t>
+        decryptContestData(const ElementModQ *secretKey,
+                           const ElementModQ *selectionEncId,
+                           uint64_t contestIndex) const;
+
+        /// <summary>
+        /// Verify the Schnorr proof on contest data encryption.
+        /// </summary>
+        bool isContestDataProofValid(const ElementModP *ballotDataKey,
+                                     const ElementModQ *selectionEncId,
+                                     uint64_t contestIndex) const;
 
       private:
         class Impl;

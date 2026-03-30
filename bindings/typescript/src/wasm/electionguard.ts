@@ -46,6 +46,9 @@ export type CiphertextElectionContextHandle = {
   getManifestHash(): ElementModQHandle;
   getCryptoExtendedBaseHash(): ElementModQHandle;
   toJson(): string;
+  // v2.1 additions
+  getBallotDataPublicKey(): ElementModPHandle;
+  getCryptoBaseHash(): ElementModQHandle;
 };
 
 export type CiphertextElectionContextStatic = {
@@ -165,6 +168,41 @@ export type PrecomputeBuffersStatic = {
   getCurrentQueueSize(): number;
 };
 
+// v2.1 Guardian key set
+export type GuardianKeySetHandle = {
+  getVotePublicKey(): ElementModPHandle;
+  getDataPublicKey(): ElementModPHandle;
+  getCommunicationPublicKey(): ElementModPHandle;
+};
+
+export type GuardianKeySetStatic = {
+  generate(guardianIndex: number, quorum: number): GuardianKeySetHandle;
+};
+
+// v2.1 election context helper functions (wraps static hash-chain builders)
+export type ElectionContextV21FunctionsStatic = {
+  makeV21(
+    numberOfGuardians: number,
+    quorum: number,
+    elGamalPublicKey: ElementModPHandle,
+    ballotDataPublicKey: ElementModPHandle,
+    manifestJson: string
+  ): CiphertextElectionContextHandle;
+  computeParameterHash(
+    numberOfGuardians: number,
+    quorum: number
+  ): ElementModQHandle;
+  computeBaseHash(
+    parameterHash: ElementModQHandle,
+    manifestJson: string
+  ): ElementModQHandle;
+  computeExtendedHash(
+    baseHash: ElementModQHandle,
+    elGamalPublicKey: ElementModPHandle,
+    ballotDataPublicKey: ElementModPHandle
+  ): ElementModQHandle;
+};
+
 export interface ElectionguardModule extends EmscriptenModule {
   PlaintextBallot: PlaintextBallotStatic;
   CiphertextBallot: CiphertextBallotStatic;
@@ -179,6 +217,8 @@ export interface ElectionguardModule extends EmscriptenModule {
   InternalManifest: InternalManifestStatic;
   ManifestFunctions: ManifestFunctionsStatic;
   PrecomputeBufferContext: PrecomputeBuffersStatic;
+  GuardianKeySet: GuardianKeySetStatic;
+  ElectionContextV21Functions: ElectionContextV21FunctionsStatic;
 }
 const createModule: EmscriptenModuleFactory<ElectionguardModule> =
   wasModuleFactory;

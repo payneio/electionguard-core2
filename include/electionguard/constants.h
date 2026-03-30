@@ -35,6 +35,46 @@ static const uint64_t DEFAULT_MAX_BALLOTS = 1000000;
 
 static const uint64_t DLOG_MAX_SIZE = 1000000;
 
+// v2.1.0 version string as 32-byte array: UTF-8 "v2.1.0" + 26 zero bytes
+static const uint8_t EG_V21_VERSION_BYTES[32] = {
+    0x76, 0x32, 0x2E, 0x31, 0x2E, 0x30, // "v2.1.0" in UTF-8
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00
+};
+
+// v2.1 domain separation bytes (Spec section 3.1)
+static const uint8_t EG_DS_PARAMETER_HASH       = 0x00; // H_P
+static const uint8_t EG_DS_ELECTION_BASE_HASH    = 0x01; // H_B
+static const uint8_t EG_DS_KEY_GENERATION_NIZK   = 0x10; // vote+data key proofs
+static const uint8_t EG_DS_SHARE_ENC_KEY         = 0x11; // share encryption KDF
+static const uint8_t EG_DS_SHARE_ENC_PROOF       = 0x12; // share encryption proof
+static const uint8_t EG_DS_GUARDIAN_RECORD_HASH  = 0x13; // H_G
+static const uint8_t EG_DS_EXTENDED_BASE_HASH    = 0x14; // H_E
+static const uint8_t EG_DS_SELECTION_ENC_ID      = 0x20; // H_I
+static const uint8_t EG_DS_ENCRYPTION_NONCE      = 0x21; // nonce derivation
+static const uint8_t EG_DS_BALLOT_NONCE_ENC_KEY  = 0x22; // ballot nonce enc
+static const uint8_t EG_DS_BALLOT_NONCE_ENC_PROOF= 0x23; // ballot nonce proof
+static const uint8_t EG_DS_RANGE_PROOF           = 0x24; // range/selection limit
+static const uint8_t EG_DS_CONTEST_DATA_NONCE    = 0x25; // contest data nonce
+static const uint8_t EG_DS_CONTEST_DATA_ENC_KEY  = 0x26; // contest data enc
+static const uint8_t EG_DS_CONTEST_DATA_ENC_PROOF= 0x27; // contest data proof
+static const uint8_t EG_DS_CONTEST_HASH          = 0x28; // contest hash
+static const uint8_t EG_DS_CONFIRMATION_CODE     = 0x29; // confirmation/chain
+static const uint8_t EG_DS_DEVICE_INFO_HASH      = 0x2A; // H_DI
+static const uint8_t EG_DS_CHAIN_CLOSING         = 0x2B; // chain closing inner
+static const uint8_t EG_DS_TALLY_DECRYPT_COMMIT  = 0x30; // tally commitment
+static const uint8_t EG_DS_TALLY_DECRYPT_PROOF   = 0x31; // tally proof challenge
+static const uint8_t EG_DS_CONTEST_DECRYPT_COMMIT= 0x32; // contest data decrypt
+static const uint8_t EG_DS_CONTEST_DECRYPT_PROOF = 0x33; // contest data proof
+static const uint8_t EG_DS_PREENC_SELECTION_HASH  = 0x40; // pre-encrypted sel
+static const uint8_t EG_DS_PREENC_CONTEST_HASH   = 0x41; // pre-encrypted contest
+static const uint8_t EG_DS_PREENC_CONFIRM_CODE   = 0x42; // pre-encrypted conf
+static const uint8_t EG_DS_PREENC_DEVICE_INFO    = 0x43; // pre-encrypted device
+static const uint8_t EG_DS_PREENC_CHAIN_CLOSING  = 0x44; // pre-encrypted chain
+static const uint8_t EG_DS_PREENC_NONCE_DERIV    = 0x45; // pre-encrypted nonce
+
 static const uint32_t MAX_P_SIZE = MAX_P_LEN * sizeof(uint64_t);
 static const uint32_t MAX_Q_SIZE = MAX_Q_LEN * sizeof(uint64_t);
 

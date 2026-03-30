@@ -47,6 +47,10 @@ set(SOURCES_electionguard_test_cpp_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/electionguard/test_hash.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/electionguard/test_nonces.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/electionguard/test_manifest.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/electionguard/test_key_ceremony_v21.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/electionguard/test_tally_v21.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/electionguard/test_facades_v21.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/electionguard/test_e2e_v21.cpp
 )
 
 set(SOURCES_electionguard_test_c_tests

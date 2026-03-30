@@ -2,11 +2,12 @@
 #include <electionguard/hash.h>
 
 static bool test_hash_elems(void);
+static bool test_hash_elems_v21(void);
 
 bool test_hash(void)
 {
     printf("\n -------- test_hash.c --------- \n");
-    return test_hash_elems();
+    return test_hash_elems() && test_hash_elems_v21();
 }
 
 bool test_hash_elems(void)
@@ -67,6 +68,34 @@ bool test_hash_elems(void)
         assert(false);
     }
     if (eg_element_mod_q_free(int_hash)) {
+        assert(false);
+    }
+
+    return true;
+}
+
+bool test_hash_elems_v21(void)
+{
+    // Build a 32-byte key using new_bytes
+    uint8_t key_bytes[32] = {0};
+    key_bytes[31] = 1; /* value = 1 */
+    eg_element_mod_q_t *key = NULL;
+    if (eg_element_mod_q_new_bytes(key_bytes, 32, &key)) {
+        assert(false);
+    }
+
+    uint8_t data[] = {0x01, 0x02, 0x03};
+    eg_element_mod_q_t *result = NULL;
+    if (eg_hash_elems_v21(key, 0x21, data, sizeof(data), &result)) {
+        assert(false);
+    }
+
+    assert(result != NULL);
+
+    if (eg_element_mod_q_free(key)) {
+        assert(false);
+    }
+    if (eg_element_mod_q_free(result)) {
         assert(false);
     }
 

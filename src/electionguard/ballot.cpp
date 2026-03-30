@@ -939,6 +939,12 @@ namespace electionguard
         unique_ptr<ElementModQ> nonce;
         unique_ptr<ElementModQ> cryptoHash;
 
+        // v2.1 fields
+        unique_ptr<ElementModQ> ballotId_v21;              // id_B
+        unique_ptr<HashedElGamalCiphertext> nonceCiphertext; // encrypted xi_B
+        vector<uint8_t> chainingField;                       // 4-byte mode + 32-byte hash
+        unique_ptr<ElementModQ> selectionEncryptionId;       // H_I
+
         Impl(const string &objectId, const string &styleId, BallotBoxState state,
              unique_ptr<ElementModQ> manifestHash, unique_ptr<ElementModQ> ballotCodeSeed,
              vector<unique_ptr<CiphertextBallotContest>> contests,
@@ -967,9 +973,23 @@ namespace electionguard
             auto _ballotCode = make_unique<ElementModQ>(*ballotCode);
             auto _nonce = make_unique<ElementModQ>(*nonce);
             auto _cryptoHash = make_unique<ElementModQ>(*cryptoHash);
-            return make_unique<CiphertextBallot::Impl>(
+            auto cloned = make_unique<CiphertextBallot::Impl>(
               object_id, styleId, state, move(_manifestHash), move(_ballotCodeSeed),
               move(_contests), move(_ballotCode), timestamp, move(_nonce), move(_cryptoHash));
+
+            // Clone v2.1 fields (nullable – only copy if set)
+            if (ballotId_v21) {
+                cloned->ballotId_v21 = make_unique<ElementModQ>(*ballotId_v21);
+            }
+            if (nonceCiphertext) {
+                cloned->nonceCiphertext = nonceCiphertext->clone();
+            }
+            cloned->chainingField = chainingField;
+            if (selectionEncryptionId) {
+                cloned->selectionEncryptionId = make_unique<ElementModQ>(*selectionEncryptionId);
+            }
+
+            return cloned;
         }
     };
 
@@ -1031,6 +1051,42 @@ namespace electionguard
     ElementModQ *CiphertextBallot::getNonce() const { return pimpl->nonce.get(); }
 
     ElementModQ *CiphertextBallot::getCryptoHash() const { return pimpl->cryptoHash.get(); }
+
+    // v2.1 getters / setters
+
+    ElementModQ *CiphertextBallot::getBallotId() const { return pimpl->ballotId_v21.get(); }
+
+    void CiphertextBallot::setBallotId(unique_ptr<ElementModQ> id)
+    {
+        pimpl->ballotId_v21 = move(id);
+    }
+
+    HashedElGamalCiphertext *CiphertextBallot::getNonceCiphertext() const
+    {
+        return pimpl->nonceCiphertext.get();
+    }
+
+    void CiphertextBallot::setNonceCiphertext(unique_ptr<HashedElGamalCiphertext> ct)
+    {
+        pimpl->nonceCiphertext = move(ct);
+    }
+
+    vector<uint8_t> CiphertextBallot::getChainingField() const { return pimpl->chainingField; }
+
+    void CiphertextBallot::setChainingField(vector<uint8_t> field)
+    {
+        pimpl->chainingField = move(field);
+    }
+
+    ElementModQ *CiphertextBallot::getSelectionEncryptionId() const
+    {
+        return pimpl->selectionEncryptionId.get();
+    }
+
+    void CiphertextBallot::setSelectionEncryptionId(unique_ptr<ElementModQ> id)
+    {
+        pimpl->selectionEncryptionId = move(id);
+    }
 
     // Interface Overrides
 

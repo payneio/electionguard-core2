@@ -548,6 +548,61 @@ namespace electionguard
 #pragma warning(suppress : 4251)
         std::unique_ptr<Impl> pimpl;
     };
+    /// <summary>
+    /// v2.1 Unified Range Proof for both selection (0/1) and contest limit proofs.
+    /// Challenge: c = H_q(H_I; 0x24, ind_c, ind_o, alpha, beta, a_0, b_0, ..., a_R, b_R)
+    /// Proof: (c_0, ..., c_R, v_0, ..., v_R) where c = sum(c_j) mod q
+    /// </summary>
+    class EG_API UnifiedRangeProof
+    {
+      public:
+        UnifiedRangeProof(const UnifiedRangeProof &other);
+        UnifiedRangeProof(UnifiedRangeProof &&other);
+        /// Public convenience constructor (no stored commitments).
+        UnifiedRangeProof(std::unique_ptr<ElementModQ> challenge,
+                          std::vector<std::unique_ptr<ElementModQ>> subChallenges,
+                          std::vector<std::unique_ptr<ElementModQ>> responses);
+        /// Full constructor with stored commitments (used internally by make/makeContestLimit).
+        UnifiedRangeProof(std::unique_ptr<ElementModQ> challenge,
+                          std::vector<std::unique_ptr<ElementModQ>> subChallenges,
+                          std::vector<std::unique_ptr<ElementModQ>> responses,
+                          std::vector<std::unique_ptr<ElementModP>> pads,
+                          std::vector<std::unique_ptr<ElementModP>> datas);
+        ~UnifiedRangeProof();
+
+        const ElementModQ *getChallenge() const;
+        uint64_t getChallengeCount() const;
+        const ElementModQ *getSubChallenge(uint64_t index) const;
+        const ElementModQ *getResponse(uint64_t index) const;
+
+        /// Selection proof: make(message, r, selected, maxLimit, K, H_I, contestIndex, selectionIndex)
+        static std::unique_ptr<UnifiedRangeProof>
+        make(const ElGamalCiphertext &message, const ElementModQ &r,
+             uint64_t selected, uint64_t maxLimit,
+             const ElementModP &k, const ElementModQ &selectionEncId,
+             uint64_t contestIndex, uint64_t selectionIndex);
+
+        /// Contest limit proof: makeContestLimit(message, r, selected, maxLimit, K, H_I, contestIndex)
+        static std::unique_ptr<UnifiedRangeProof>
+        makeContestLimit(const ElGamalCiphertext &message, const ElementModQ &r,
+                         uint64_t selected, uint64_t maxLimit,
+                         const ElementModP &k, const ElementModQ &selectionEncId,
+                         uint64_t contestIndex);
+
+        bool isValid(const ElGamalCiphertext &message, const ElementModP &k,
+                     const ElementModQ &selectionEncId,
+                     uint64_t contestIndex, uint64_t selectionIndex) const;
+
+        bool isValidContestLimit(const ElGamalCiphertext &message, const ElementModP &k,
+                                 const ElementModQ &selectionEncId,
+                                 uint64_t contestIndex) const;
+
+      private:
+        class Impl;
+#pragma warning(suppress : 4251)
+        std::unique_ptr<Impl> pimpl;
+    };
+
 } // namespace electionguard
 
 #endif /* __ELECTIONGUARD_CPP_CHAUM_PEDERSEN_HPP_INCLUDED__ */

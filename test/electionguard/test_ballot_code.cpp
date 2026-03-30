@@ -1,6 +1,10 @@
 #include <doctest/doctest.h>
 #include <electionguard/ballot_code.hpp>
+#include <electionguard/elgamal.hpp>
+#include <electionguard/group.hpp>
+#include <electionguard/hash.hpp>
 #include <electionguard/log.hpp>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -40,4 +44,143 @@ TEST_CASE("Get rotating ballot code rotates")
 
     CHECK((*rotatingHash1 != *rotatingHash2));
     CHECK(&rotatingHash1 != &rotatingHash2);
+}
+
+TEST_CASE("v2.1 contest hash: chi_l = H(H_I; 0x28, l, alpha_1, beta_1, ...)")
+{
+    auto H_I = rand_q();
+    uint64_t contestIndex = 0;
+    auto keypair = ElGamalKeyPair::fromSecret(TWO_MOD_Q());
+
+    // Create two encrypted selections
+    auto nonce1 = rand_q();
+    auto nonce2 = rand_q();
+    auto ct1 = elgamalEncrypt(1UL, *nonce1, *keypair->getPublicKey());
+    auto ct2 = elgamalEncrypt(0UL, *nonce2, *keypair->getPublicKey());
+
+    vector<const ElGamalCiphertext *> selections = {ct1.get(), ct2.get()};
+
+    auto chi = BallotCode::computeContestHash(H_I.get(), contestIndex, selections, nullptr);
+    REQUIRE(chi != nullptr);
+
+    // Deterministic
+    auto chi2 = BallotCode::computeContestHash(H_I.get(), contestIndex, selections, nullptr);
+    CHECK((*chi == *chi2));
+
+    // Different contest index produces different hash
+    auto chi3 = BallotCode::computeContestHash(H_I.get(), 1, selections, nullptr);
+    CHECK((*chi != *chi3));
+}
+
+TEST_CASE("v2.1 device info hash: H_DI = H(H_E; 0x2A, S_device)")
+{
+    auto H_E = rand_q();
+    string deviceInfo = "Precinct 42, Scanner A";
+
+    auto H_DI = BallotCode::computeDeviceInfoHash(H_E.get(), deviceInfo);
+    REQUIRE(H_DI != nullptr);
+
+    // Deterministic
+    auto H_DI_again = BallotCode::computeDeviceInfoHash(H_E.get(), deviceInfo);
+    CHECK((*H_DI == *H_DI_again));
+
+    // Different device info produces different hash
+    auto H_DI_2 = BallotCode::computeDeviceInfoHash(H_E.get(), "Other device");
+    CHECK((*H_DI != *H_DI_2));
+}
+
+TEST_CASE("v2.1 confirmation code: H_C = H(H_I; 0x29, chi_1, ..., chi_m, B_C)")
+{
+    auto H_I = rand_q();
+    auto chi_1 = rand_q();
+    auto chi_2 = rand_q();
+    vector<const ElementModQ *> contestHashes = {chi_1.get(), chi_2.get()};
+
+    // No-chaining field: 4 zero bytes mode + 32 bytes hash
+    vector<uint8_t> chainingField(36, 0x00);
+
+    auto H_C = BallotCode::computeConfirmationCode(H_I.get(), contestHashes, chainingField);
+    REQUIRE(H_C != nullptr);
+
+    // Deterministic
+    auto H_C_again = BallotCode::computeConfirmationCode(H_I.get(), contestHashes, chainingField);
+    CHECK((*H_C == *H_C_again));
+
+    // Different chaining field produces different hash
+    vector<uint8_t> differentChain(36, 0x01);
+    auto H_C_2 = BallotCode::computeConfirmationCode(H_I.get(), contestHashes, differentChain);
+    CHECK((*H_C != *H_C_2));
+}
+
+TEST_CASE("v2.1 no-chaining mode: B_C = 0x00000000 || H_DI")
+{
+    auto H_E = rand_q();
+    auto H_DI = BallotCode::computeDeviceInfoHash(H_E.get(), "test device");
+
+    auto chainingField = BallotCode::buildNoChainingField(H_DI.get());
+    REQUIRE(chainingField.size() == 36);
+
+    // First 4 bytes are 0x00000000 (no-chain mode)
+    CHECK(chainingField[0] == 0x00);
+    CHECK(chainingField[1] == 0x00);
+    CHECK(chainingField[2] == 0x00);
+    CHECK(chainingField[3] == 0x00);
+
+    // Remaining 32 bytes match H_DI
+    auto hdiBytes = H_DI->toBytes();
+    for (size_t i = 0; i < 32 && i < hdiBytes.size(); ++i) {
+        CHECK(chainingField[4 + i] == hdiBytes[i]);
+    }
+}
+
+TEST_CASE("v2.1 simple-chain mode: init and progression")
+{
+    auto H_E = rand_q();
+    auto H_DI = BallotCode::computeDeviceInfoHash(H_E.get(), "test device");
+
+    // Chain init: B_{C,0} = 0x00000001 || H_DI
+    auto initField = BallotCode::buildSimpleChainInitField(H_DI.get());
+    REQUIRE(initField.size() == 36);
+    CHECK(initField[0] == 0x00);
+    CHECK(initField[1] == 0x00);
+    CHECK(initField[2] == 0x00);
+    CHECK(initField[3] == 0x01);
+
+    // H_0 = H(H_E; 0x29, B_{C,0})
+    auto H_0 = BallotCode::computeChainInitHash(H_E.get(), initField);
+    REQUIRE(H_0 != nullptr);
+
+    // Next ballot field: B_{C,1} = 0x00000001 || H_0
+    auto nextField = BallotCode::buildSimpleChainField(H_0.get());
+    CHECK(nextField.size() == 36);
+    CHECK(nextField[3] == 0x01);
+
+    // H_0 should match in the next field's hash portion
+    auto h0Bytes = H_0->toBytes();
+    for (size_t i = 0; i < 32 && i < h0Bytes.size(); ++i) {
+        CHECK(nextField[4 + i] == h0Bytes[i]);
+    }
+
+    // Init and chain produce different fields
+    CHECK(initField != nextField);
+}
+
+TEST_CASE("v2.1 chain closing protocol")
+{
+    auto H_E = rand_q();
+    auto H_DI = BallotCode::computeDeviceInfoHash(H_E.get(), "test device");
+    auto H_last = rand_q();  // simulate last confirmation code in chain
+    auto initField = BallotCode::buildSimpleChainInitField(H_DI.get());
+
+    auto H_bar = BallotCode::closeChain(H_E.get(), H_last.get(), initField);
+    REQUIRE(H_bar != nullptr);
+
+    // Closing hash should be deterministic
+    auto H_bar_2 = BallotCode::closeChain(H_E.get(), H_last.get(), initField);
+    CHECK((*H_bar == *H_bar_2));
+
+    // Different last hash produces different closing hash
+    auto H_other = rand_q();
+    auto H_bar_3 = BallotCode::closeChain(H_E.get(), H_other.get(), initField);
+    CHECK((*H_bar != *H_bar_3));
 }

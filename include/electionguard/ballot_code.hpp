@@ -1,11 +1,13 @@
 #ifndef __ELECTIONGUARD_CPP_BALLOT_CODE_HPP_INCLUDED__
 #define __ELECTIONGUARD_CPP_BALLOT_CODE_HPP_INCLUDED__
 
+#include "elgamal.hpp"
 #include "export.h"
 #include "group.hpp"
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace electionguard
 {
@@ -47,6 +49,52 @@ namespace electionguard
         /// </summary>
         static std::unique_ptr<ElementModQ>
         getBallotCode(const ElementModQ &seed, uint64_t timestamp, const ElementModQ &ballotCode);
+
+        // ── v2.1 contest hash ────────────────────────────────────────
+
+        /// v2.1: chi_l = H(H_I; 0x28, l, alpha_1, beta_1, ..., alpha_n, beta_n, [contest_data])
+        static std::unique_ptr<ElementModQ> computeContestHash(
+            const ElementModQ *selectionEncId,
+            uint64_t contestIndex,
+            const std::vector<const ElGamalCiphertext *> &selections,
+            const HashedElGamalCiphertext *contestData);
+
+        // ── v2.1 device info hash ───────────────────────────────────
+
+        /// v2.1: H_DI = H(H_E; 0x2A, S_device)
+        static std::unique_ptr<ElementModQ> computeDeviceInfoHash(
+            const ElementModQ *extendedHash,
+            const std::string &deviceInfo);
+
+        // ── v2.1 confirmation code ──────────────────────────────────
+
+        /// v2.1: H_C = H(H_I; 0x29, chi_1, ..., chi_m, B_C)
+        static std::unique_ptr<ElementModQ> computeConfirmationCode(
+            const ElementModQ *selectionEncId,
+            const std::vector<const ElementModQ *> &contestHashes,
+            const std::vector<uint8_t> &chainingField);
+
+        // ── v2.1 chaining ───────────────────────────────────────────
+
+        /// v2.1 no-chain: B_C = 0x00000000 || H_DI
+        static std::vector<uint8_t> buildNoChainingField(const ElementModQ *deviceInfoHash);
+
+        /// v2.1 simple-chain init: B_{C,0} = 0x00000001 || H_DI
+        static std::vector<uint8_t> buildSimpleChainInitField(const ElementModQ *deviceInfoHash);
+
+        /// v2.1 simple-chain next: B_{C,j} = 0x00000001 || H_{j-1}
+        static std::vector<uint8_t> buildSimpleChainField(const ElementModQ *previousHash);
+
+        /// v2.1 chain init hash: H_0 = H(H_E; 0x29, B_{C,0})
+        static std::unique_ptr<ElementModQ> computeChainInitHash(
+            const ElementModQ *extendedHash,
+            const std::vector<uint8_t> &initField);
+
+        /// v2.1 chain closing: H_bar
+        static std::unique_ptr<ElementModQ> closeChain(
+            const ElementModQ *extendedHash,
+            const ElementModQ *lastHash,
+            const std::vector<uint8_t> &initField);
     };
 
 } // namespace electionguard

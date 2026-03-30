@@ -14,6 +14,17 @@ extern "C" {
 using namespace electionguard;
 using namespace std;
 
+unique_ptr<CiphertextElectionContext>
+electionguard::tools::generators::ElectionGenerator::getFakeContextV21(
+  const InternalManifest &manifest, const ElementModP &elGamalPublicKey,
+  const ElementModP &ballotDataPublicKey)
+{
+    auto manifestJson = manifest.toJson();
+    vector<uint8_t> manifestBytes(manifestJson.begin(), manifestJson.end());
+    return CiphertextElectionContext::make(3UL, 2UL, elGamalPublicKey.clone(),
+                                          ballotDataPublicKey.clone(), manifestBytes);
+}
+
 EG_API eg_electionguard_status_t eg_test_election_mocks_get_fake_ciphertext_election(
   eg_election_manifest_t *in_manifest, eg_element_mod_p_t *in_public_key,
   eg_internal_manifest_t **out_manifest, eg_ciphertext_election_context_t **out_context)
