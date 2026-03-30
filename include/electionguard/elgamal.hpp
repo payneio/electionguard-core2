@@ -232,6 +232,11 @@ namespace electionguard
         /// </Summary>
         std::unique_ptr<ElGamalCiphertext> clone() const;
 
+        /// v2.1: Weighted accumulate: (A,B) = product(alpha_j^W_j, beta_j^W_j) mod p
+        static std::unique_ptr<ElGamalCiphertext>
+        weightedAccumulate(const std::vector<const ElGamalCiphertext *> &ciphertexts,
+                           const std::vector<uint64_t> &weights);
+
       protected:
         /// <Summary>
         /// Decrypts an ElGamal ciphertext with a "known product" (the blinding factor used in the encryption).

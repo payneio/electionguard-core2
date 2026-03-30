@@ -298,6 +298,29 @@ namespace electionguard
         return DiscreteLog::getAsync(*result, base);
     }
 
+    unique_ptr<ElGamalCiphertext>
+    ElGamalCiphertext::weightedAccumulate(const vector<const ElGamalCiphertext *> &ciphertexts,
+                                          const vector<uint64_t> &weights)
+    {
+        if (ciphertexts.size() != weights.size() || ciphertexts.empty()) {
+            throw invalid_argument("ciphertexts and weights must be non-empty and same size");
+        }
+
+        // Start with identity: (1, 1)
+        auto A = ONE_MOD_P().clone();
+        auto B = ONE_MOD_P().clone();
+
+        for (size_t i = 0; i < ciphertexts.size(); ++i) {
+            auto w = ElementModQ::fromUint64(weights[i], true);
+            auto alpha_w = pow_mod_p(*ciphertexts[i]->getPad(), *w);
+            auto beta_w = pow_mod_p(*ciphertexts[i]->getData(), *w);
+            A = mul_mod_p(*A, *alpha_w);
+            B = mul_mod_p(*B, *beta_w);
+        }
+
+        return make_unique<ElGamalCiphertext>(move(A), move(B));
+    }
+
 #pragma endregion
 
     /// <summary>
