@@ -13,6 +13,7 @@ using electionguard::CryptoHashableType;
 using electionguard::ElementModP;
 using electionguard::ElementModQ;
 using electionguard::hash_elems;
+using electionguard::hash_elems_v21;
 using electionguard::Log;
 using electionguard::uint64_to_size;
 using electionguard::variant_cast;
@@ -258,6 +259,24 @@ eg_electionguard_status_t eg_hash_elems_array(eg_element_mod_p_t *in_data[], uin
         }
         auto result = hash_elems(elements);
 
+        *out_handle = AS_TYPE(eg_element_mod_q_t, result.release());
+        return ELECTIONGUARD_STATUS_SUCCESS;
+    } catch (const exception &e) {
+        Log::error(__func__, e);
+        return ELECTIONGUARD_STATUS_ERROR_BAD_ALLOC;
+    }
+}
+
+eg_electionguard_status_t eg_hash_elems_v21(
+    eg_element_mod_q_t *in_key,
+    uint8_t domain_separator,
+    const uint8_t *in_data, uint64_t in_data_length,
+    eg_element_mod_q_t **out_handle)
+{
+    try {
+        auto key = AS_TYPE(ElementModQ, in_key);
+        vector<uint8_t> data(in_data, in_data + in_data_length);
+        auto result = hash_elems_v21(key, domain_separator, {data});
         *out_handle = AS_TYPE(eg_element_mod_q_t, result.release());
         return ELECTIONGUARD_STATUS_SUCCESS;
     } catch (const exception &e) {

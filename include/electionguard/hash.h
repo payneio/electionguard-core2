@@ -147,6 +147,13 @@ EG_API eg_electionguard_status_t eg_hash_elems_array(eg_element_mod_p_t *in_data
                                                      uint64_t in_data_size,
                                                      eg_element_mod_q_t **out_handle);
 
+EG_API eg_electionguard_status_t eg_hash_elems_v21(
+    eg_element_mod_q_t *in_key,
+    uint8_t domain_separator,
+    /* serialized data buffer */
+    const uint8_t *in_data, uint64_t in_data_length,
+    eg_element_mod_q_t **out_handle);
+
 #ifdef __cplusplus
 }
 #endif
