@@ -130,6 +130,20 @@ namespace ElectionGuard
         }
 
         /// <summary>
+        /// The ballot data public key K_hat (v2.1 dual-key scheme).
+        /// Returns null if this context was constructed via the legacy make() path.
+        /// </summary>
+        public ElementModP BallotDataPublicKey
+        {
+            get
+            {
+                var status = NativeInterface.CiphertextElectionContext.GetBallotDataPublicKey(Handle, out var value);
+                if (status != Status.ELECTIONGUARD_STATUS_SUCCESS || value.IsInvalid) return null;
+                return new ElementModP(value);
+            }
+        }
+
+        /// <summary>
         /// Get a linked list containing the extended data of the election.
         /// </summary>
         public LinkedList ExtendedData
@@ -276,6 +290,34 @@ namespace ElectionGuard
 
         public CiphertextElectionContext(CiphertextElectionContext other) : this(other.ToJson())
         {
+        }
+
+        internal CiphertextElectionContext(
+            NativeInterface.CiphertextElectionContext.CiphertextElectionContextHandle handle)
+        {
+            Handle = handle;
+        }
+
+        /// <summary>
+        /// Creates a v2.1 CiphertextElectionContext with dual keys (K + K_hat) and raw manifest bytes.
+        /// Internally computes H_P, H_B, and H_E per spec v2.1.
+        /// </summary>
+        public static CiphertextElectionContext MakeV21(
+            ulong numberOfGuardians,
+            ulong quorum,
+            ElementModP elGamalPublicKey,
+            ElementModP ballotDataPublicKey,
+            byte[] manifestBytes)
+        {
+            var status = NativeInterface.CiphertextElectionContext.MakeV21(
+                numberOfGuardians, quorum,
+                elGamalPublicKey.Handle,
+                ballotDataPublicKey.Handle,
+                manifestBytes,
+                (ulong)manifestBytes.Length,
+                out var handle);
+            status.ThrowIfError();
+            return new CiphertextElectionContext(handle);
         }
 
 #pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
