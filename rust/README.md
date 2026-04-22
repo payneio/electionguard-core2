@@ -51,7 +51,7 @@ that exercise the full election lifecycle.
 cargo run --release -- --guardians 3 --threshold 2 --ballots 10 --spoil 2 --seed 42
 ```
 
-See [src/bin/README.md](src/bin/README.md) for full simulator documentation.
+See [SIMULATING-A-VOTE.md](SIMULATING-A-VOTE.md) for full simulator documentation.
 
 ## Crate Structure
 
